@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/banner.png" alt="quill.nvim" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
+    <img src="assets/banner.png" alt="quill.nvim" width="100%">
+  </picture>
 </p>
 
 Select code, describe the change, and review the rewrite hunk by hunk before it touches
