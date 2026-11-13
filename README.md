@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
-    <img src="assets/banner.png" alt="quill.nvim" width="100%">
-  </picture>
+  <img src="assets/banner.png" alt="quill.nvim" width="100%">
 </p>
 
 Select code, describe the change, and watch the rewrite stream in as a preview drawn over
