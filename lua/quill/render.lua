@@ -224,6 +224,22 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   end,
 })
 
+local SPINNER = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+function M.spinner(frame)
+  return SPINNER[frame % #SPINNER + 1]
+end
+
+--- { {key, label}... } -> chunks drawn as key chips.
+function M.key_chips(pairs_list)
+  local chunks = {}
+  for _, p in ipairs(pairs_list) do
+    chunks[#chunks + 1] = { " " .. p[1] .. " ", "QuillKey" }
+    chunks[#chunks + 1] = { " " .. p[2] .. " ", "QuillKeyLabel" }
+  end
+  return chunks
+end
+
 --- Writes `chunks` ({text, hl} pairs) as one line of `buf` and returns its display width.
 function M.set_chunks(buf, chunks)
   local text, marks = "", {}

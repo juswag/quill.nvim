@@ -73,32 +73,21 @@ local function cancel_key()
   return type(c) == "table" and c[1] or c
 end
 
-local SPINNER = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
-
-local function key_chips(pairs_list)
-  local chunks = {}
-  for _, p in ipairs(pairs_list) do
-    chunks[#chunks + 1] = { " " .. p[1] .. " ", "QuillKey" }
-    chunks[#chunks + 1] = { " " .. p[2] .. " ", "QuillKeyLabel" }
-  end
-  return chunks
-end
-
 local function status_chunks(s)
   local k = M.config.keys
   if s.phase == "streaming" then
     local st = s.stats
     local out = {
-      { " " .. SPINNER[st.frame % #SPINNER + 1] .. " ", "QuillSpinner" },
+      { " " .. render.spinner(st.frame) .. " ", "QuillSpinner" },
       { "Generating", "QuillStatus" },
       { ("  %s · %d %s · %d tokens  "):format(st.model, #s.proposed, #s.proposed == 1 and "line" or "lines", st.tokens),
         "QuillMuted" },
     }
-    return vim.list_extend(out, key_chips({ { cancel_key(), "cancel" } }))
+    return vim.list_extend(out, render.key_chips({ { cancel_key(), "cancel" } }))
   end
   if #s.hunks == 0 then
     return vim.list_extend({ { " ○ ", "QuillMuted" }, { "No changes proposed  ", "QuillStatus" } },
-      key_chips({ { k.followup, "follow-up" }, { cancel_key(), "close" } }))
+      render.key_chips({ { k.followup, "follow-up" }, { cancel_key(), "close" } }))
   end
   local plus, minus = 0, 0
   for _, h in ipairs(s.hunks) do
@@ -114,7 +103,7 @@ local function status_chunks(s)
     { "−" .. minus, "QuillMinus" },
     { "  ", "QuillMuted" },
   }
-  return vim.list_extend(out, key_chips({
+  return vim.list_extend(out, render.key_chips({
     { k.accept_all, "accept all" },
     { k.reject_all, "reject all" },
     { k.next .. "/" .. k.prev, "move" },
