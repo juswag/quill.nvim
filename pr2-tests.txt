@@ -1,0 +1,88 @@
+$ NVIM=nvim ./test.sh   # NVIM v0.11.5, 0831e00
+PASS hunks.merge applies only accepted hunks
+PASS hunks.inline finds changed words and skips rewritten lines
+PASS current hunk gets word highlights and strong colors, others are dimmed
+PASS status float shows streaming progress, then a done state
+PASS accepting a hunk flashes it briefly, then it settles into the accepted style
+PASS preview never modifies the buffer while streaming or reviewing
+PASS accepting one hunk and rejecting the other yields the expected text
+PASS a single u restores the original after accepting several hunks
+PASS reject all leaves the buffer identical with no undo entry
+PASS navigation: ]h then a accepts the second hunk only
+PASS follow-up re-runs with prior instruction and output, anchored to the same range
+PASS follow-up through the f mapping and the prompt window
+PASS visual select + <leader>k + typed instruction starts a session
+PASS Esc in the first prompt cancels the session
+PASS q mid-stream cancels the request and clears the preview
+PASS request carries filetype, surrounding lines, diagnostics and treesitter node
+
+16 passed, 0 failed
+PASS openai provider streams SSE through curl into the preview
+PASS anthropic provider streams SSE through curl into the preview
+PASS cancel kills the curl process
+PASS missing API key reports an error and closes the session
+
+4 passed, 0 failed
+PASS codex streams the CLI's JSONL events into the preview
+PASS codex follow-up sends the earlier answer back in the prompt
+PASS codex cancel kills the CLI process
+PASS codex missing binary names the install command
+PASS codex not signed in reports the CLI's error and the login command
+PASS codex non-zero exit surfaces stderr
+PASS codex times out and kills a stuck CLI
+PASS claude_code streams the CLI's JSONL events into the preview
+PASS claude_code follow-up sends the earlier answer back in the prompt
+PASS claude_code cancel kills the CLI process
+PASS claude_code missing binary names the install command
+PASS claude_code not signed in reports the CLI's error and the login command
+PASS claude_code non-zero exit surfaces stderr
+PASS claude_code times out and kills a stuck CLI
+PASS args override replaces the default flags
+
+15 passed, 0 failed
+exit=0
+
+$ NVIM=/tmp/nvim010/bin/nvim ./test.sh   # NVIM v0.10.4, 0831e00
+PASS hunks.merge applies only accepted hunks
+PASS hunks.inline finds changed words and skips rewritten lines
+PASS current hunk gets word highlights and strong colors, others are dimmed
+PASS status float shows streaming progress, then a done state
+PASS accepting a hunk flashes it briefly, then it settles into the accepted style
+PASS preview never modifies the buffer while streaming or reviewing
+PASS accepting one hunk and rejecting the other yields the expected text
+PASS a single u restores the original after accepting several hunks
+PASS reject all leaves the buffer identical with no undo entry
+PASS navigation: ]h then a accepts the second hunk only
+PASS follow-up re-runs with prior instruction and output, anchored to the same range
+PASS follow-up through the f mapping and the prompt window
+PASS visual select + <leader>k + typed instruction starts a session
+PASS Esc in the first prompt cancels the session
+PASS q mid-stream cancels the request and clears the preview
+PASS request carries filetype, surrounding lines, diagnostics and treesitter node
+
+16 passed, 0 failed
+PASS openai provider streams SSE through curl into the preview
+PASS anthropic provider streams SSE through curl into the preview
+PASS cancel kills the curl process
+PASS missing API key reports an error and closes the session
+
+4 passed, 0 failed
+PASS codex streams the CLI's JSONL events into the preview
+PASS codex follow-up sends the earlier answer back in the prompt
+PASS codex cancel kills the CLI process
+PASS codex missing binary names the install command
+PASS codex not signed in reports the CLI's error and the login command
+PASS codex non-zero exit surfaces stderr
+PASS codex times out and kills a stuck CLI
+PASS claude_code streams the CLI's JSONL events into the preview
+PASS claude_code follow-up sends the earlier answer back in the prompt
+PASS claude_code cancel kills the CLI process
+PASS claude_code missing binary names the install command
+PASS claude_code not signed in reports the CLI's error and the login command
+PASS claude_code non-zero exit surfaces stderr
+PASS claude_code times out and kills a stuck CLI
+PASS args override replaces the default flags
+
+15 passed, 0 failed
+exit=0
+
