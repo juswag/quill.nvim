@@ -93,7 +93,7 @@ from anywhere in the buffer.
 | --- | --- |
 | `quill/init.lua` | Session controller. A transition table (`prompting → streaming → reviewing → closed`, with follow-up looping back to `prompting`) owns every state change. An extmark tracks the edited range, so follow-ups stay anchored. |
 | `quill/context.lua` | Builds the request: filetype, surrounding lines, diagnostics in the range, the enclosing Treesitter node, the selection, and the instruction. Follow-ups add the previous proposal as an assistant turn. |
-| `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `mock.lua` streams a canned reply on a timer. |
+| `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `cli.lua` runs a CLI per request and parses its JSONL events; each CLI is one table entry. `mock.lua` streams a canned reply on a timer. |
 | `quill/hunks.lua` | Pure diff model. `compute` turns `vim.diff` output into hunks, `merge` builds the final text from the accepted ones, `inline` finds the changed words in a line pair. |
 | `quill/render.lua` | Draws the preview with extmarks only: line and word highlights, virtual lines, signs, key chips, and the status float. |
 | `quill/prompt.lua` | The floating instruction input. |
@@ -110,7 +110,8 @@ NVIM=/path/to/nvim ./test.sh
 ```
 
 The suites drive the plugin through real keystrokes with the mock provider, and run curl
-against a local server (`tests/sse_server.py`) for both wire formats. They need `nvim`,
+against a local server (`tests/sse_server.py`) for both wire formats. Fake `codex` and `claude`
+executables in `tests/bin/` replay event streams from `tests/fixtures/`. They need `nvim`,
 `curl`, and `python3`. `demo/record.sh` re-records the demo (tmux, asciinema 3, agg, ffmpeg).
 
 ## Limitations
