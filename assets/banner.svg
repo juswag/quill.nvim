@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 400" width="1280" height="400">
   <title>quill.nvim</title>
-  <rect width="1280" height="400" fill="#ffffff"/>
   <svg x="216" y="100" width="200" height="200" viewBox="0 0 64 64">
     <mask id="bn">
       <rect x="0" y="0" width="64" height="64" fill="#fff"/>

@@ -1,29 +1,111 @@
 <p align="center">
-  <img src="assets/banner.png" alt="quill.nvim" width="100%">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
+    <img src="assets/banner.png" alt="quill.nvim" width="100%">
+  </picture>
 </p>
 
-Select code, describe the change, and watch the rewrite stream in as a preview drawn over
-your code. Accept or reject each hunk. The buffer is not touched until you finish
-reviewing, and everything you accepted lands as one undo step.
+Select code, describe the change, and review the rewrite hunk by hunk before it touches
+your buffer.
 
-![quill.nvim demo](assets/demo.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo-dark.gif">
+  <img src="assets/demo.gif" alt="quill.nvim demo">
+</picture>
 
-Requires Neovim 0.10 or newer and `curl`. The `codex` and `claude_code` providers need their CLI instead.
+## Features
+
+- **Preview before anything changes.** The rewrite streams in as an overlay on your code.
+  The buffer text stays the same until you finish reviewing.
+- **Hunk-by-hunk review.** Accept or reject each change on its own, or all of them at once.
+- **One undo step.** Everything you accepted lands as a single change, so one `u` restores
+  the original.
+- **Follow-ups.** Press `f` to refine the current proposal ("also add types") without
+  starting over.
+- **Use the subscription you already pay for.** Run edits through your ChatGPT plan (Codex
+  CLI), Claude plan (Claude Code), or GitHub Copilot, with no API key.
+- **Or any API.** OpenAI, Anthropic, and any OpenAI-compatible server such as Ollama,
+  LM Studio, vLLM, or OpenRouter.
+- **Context-aware prompts.** Each request includes the filetype, surrounding lines, the
+  enclosing Treesitter node, and diagnostics in the selection.
+- **Fits your colorscheme.** Highlights are derived from your theme and update when it
+  changes.
+
+## Requirements
+
+- Neovim 0.10 or newer
+- `curl` for the API and Copilot providers, or the `codex` / `claude` CLI for those providers
 
 ## Install
 
-[lazy.nvim](https://github.com/folke/lazy.nvim):
+With [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ```lua
 { "juswag/quill.nvim", opts = {} }
 ```
 
-`opts` is passed to `require("quill").setup()`, which also creates the `<leader>k` visual-mode
-mapping. With another plugin manager, call `require("quill").setup({})` yourself.
+With another plugin manager, call `require("quill").setup({})` yourself. Setup creates the
+`<leader>k` visual-mode mapping.
+
+## How to use
+
+1. Select lines in visual mode and press `<leader>k` (or run `:'<,'>Quill`).
+2. Type what you want changed, for example `add error handling`, and press `<CR>`.
+3. Watch the proposal stream in. Removed lines are tinted red, added lines appear in green,
+   and the changed words are highlighted.
+4. Review each hunk with the keys below. When none are left, the accepted ones are applied.
+
+| Key | Action |
+| --- | --- |
+| `a` / `r` | Accept or reject the current hunk |
+| `A` / `R` | Accept or reject all remaining hunks |
+| `]h` / `[h` | Jump to the next or previous hunk |
+| `f` | Refine the proposal with a follow-up |
+| `q` / `<Esc>` | Cancel and clear the preview |
+
+`:'<,'>Quill make this async` skips the prompt. `:QuillCancel` ends a session from anywhere
+in the buffer. Rejecting everything leaves the file untouched.
+
+## Choose a provider
+
+quill uses OpenAI by default and reads the key from `OPENAI_API_KEY`. Set `provider` to
+switch.
+
+### With a subscription (no API key)
+
+| Provider | Uses | One-time setup |
+| --- | --- | --- |
+| `codex` | ChatGPT plan via the [Codex CLI](https://github.com/openai/codex) | `npm i -g @openai/codex && codex login` |
+| `claude_code` | Claude Pro/Max via [Claude Code](https://docs.claude.com/en/docs/claude-code) | `npm i -g @anthropic-ai/claude-code`, then `claude` and `/login` |
+| `copilot` | GitHub Copilot | Sign in with [copilot.vim](https://github.com/github/copilot.vim) (`:Copilot setup`) or [copilot.lua](https://github.com/zbirenbaum/copilot.lua) (`:Copilot auth`) |
+
+```lua
+opts = { provider = "claude_code" }
+```
+
+The CLIs run read-only (Codex with `--sandbox read-only`, Claude Code with no tools). Codex
+returns its answer in one piece, so its preview fills in all at once. The `copilot`
+provider uses GitHub's undocumented token endpoint, which can change without notice.
+
+### With an API key
+
+```lua
+-- Anthropic, key from ANTHROPIC_API_KEY
+opts = { provider = "anthropic" }
+
+-- Ollama, or any OpenAI-compatible server
+opts = {
+  provider = "ollama",
+  providers = {
+    ollama = { format = "openai", base_url = "http://localhost:11434/v1", model = "qwen2.5-coder", api_key = "ollama" },
+  },
+}
+```
 
 ## Configuration
 
-Defaults:
+<details>
+<summary>Defaults</summary>
 
 ```lua
 require("quill").setup({
@@ -31,7 +113,7 @@ require("quill").setup({
   providers = {
     openai = { base_url = "https://api.openai.com/v1", model = "gpt-4o-mini", api_key_env = "OPENAI_API_KEY" },
     anthropic = { base_url = "https://api.anthropic.com/v1", model = "claude-sonnet-4-5", api_key_env = "ANTHROPIC_API_KEY" },
-    codex = {},               -- ChatGPT plan through the Codex CLI (see below)
+    codex = {},               -- ChatGPT plan through the Codex CLI
     claude_code = {},         -- Claude plan through Claude Code
     copilot = { model = "gpt-5-mini" }, -- GitHub Copilot sign-in
     mock = {},                -- offline provider used by the tests and the demo
@@ -45,126 +127,26 @@ require("quill").setup({
 })
 ```
 
-Examples:
+</details>
 
-```lua
--- Anthropic
-opts = { provider = "anthropic" }
+`codex` and `claude_code` also accept `cmd`, `args`, `model`, and `timeout_ms` (default
+120000). Every highlight group is named `Quill*` and can be overridden. Full reference:
+`:help quill.txt`.
 
--- A different OpenAI model
-opts = { providers = { openai = { model = "gpt-4.1" } } }
+## Limitations
 
--- Ollama, or any OpenAI-compatible server (LM Studio, vLLM, OpenRouter)
-opts = {
-  provider = "ollama",
-  providers = {
-    ollama = { format = "openai", base_url = "http://localhost:11434/v1", model = "qwen2.5-coder", api_key = "ollama" },
-  },
-}
-```
-
-API keys are read from the environment variable named by `api_key_env`. A provider entry
-with `format = "openai"` or `format = "anthropic"` reuses that wire format under its own name.
-
-### Use a subscription instead of an API key
-
-Three providers reuse a sign-in you already have, so no API key is needed.
-
-| Provider | Uses | Setup |
-| --- | --- | --- |
-| `codex` | ChatGPT plan via the [Codex CLI](https://github.com/openai/codex) | `npm i -g @openai/codex && codex login` |
-| `claude_code` | Claude Pro/Max plan via [Claude Code](https://docs.claude.com/en/docs/claude-code) | `npm i -g @anthropic-ai/claude-code`, then run `claude` and `/login` |
-| `copilot` | GitHub Copilot plan | Sign in once with [copilot.vim](https://github.com/github/copilot.vim) (`:Copilot setup`) or [copilot.lua](https://github.com/zbirenbaum/copilot.lua) (`:Copilot auth`) |
-
-```lua
-opts = { provider = "codex" }
-opts = { provider = "claude_code", providers = { claude_code = { model = "sonnet" } } }
-opts = { provider = "copilot", providers = { copilot = { model = "gpt-4.1" } } }
-```
-
-`codex` and `claude_code` run the CLI once per request with the prompt on stdin and read
-its JSON event stream. quill runs them read-only: Codex gets `--sandbox read-only`, and
-Claude Code gets `--tools ""`. Each accepts:
-
-- `cmd`: the executable, if it is not `codex` or `claude` on `$PATH`.
-- `args`: replaces the default flags (listed in `:h quill-providers`).
-- `model`: passed as `-m` or `--model`. Unset uses the CLI's own default.
-- `timeout_ms`: kills the CLI after this long (default 120000).
-
-Claude Code streams text as it is generated. Codex reports its answer in one piece when
-the turn ends, so the preview fills in all at once. Expect a few seconds of CLI startup
-on each request with either.
-
-`copilot` reads the OAuth token that copilot.vim or copilot.lua saved in
-`~/.config/github-copilot/apps.json` or `hosts.json`, exchanges it for a short-lived API
-token (cached until a minute before it expires), and streams Chat Completions from
-Copilot's API. That token exchange is GitHub's internal, undocumented API, not a public
-one, so it can change without notice. `model` is any chat model your Copilot plan offers.
-
-## Usage
-
-1. Select lines in visual mode and press `<leader>k`, or run `:'<,'>Quill`.
-   `:'<,'>Quill make this async` skips the prompt.
-2. Type the instruction and press `<CR>`. `<Esc>` closes the prompt.
-3. The proposal streams in. Removed lines get a soft red background, added lines appear as
-   green virtual lines, and the changed words are marked in a stronger shade. The buffer
-   text does not change.
-4. Review with these keys, active in the buffer while the session is open:
-
-| Key | Action |
-| --- | --- |
-| `a` / `r` | Accept or reject the current hunk, then move to the next pending one |
-| `A` / `R` | Accept or reject every remaining hunk |
-| `]h` / `[h` | Next or previous pending hunk |
-| `f` | Follow-up prompt that refines the current proposal |
-| `q` / `<Esc>` | Cancel. Stops the request and clears the preview |
-
-When no pending hunks remain, the accepted hunks are written in one change, so a single `u`
-restores the original. Rejecting everything writes nothing. `:QuillCancel` ends a session
-from anywhere in the buffer.
-
-## How it works
-
-![Architecture](docs/arch.png)
-
-| Module | Role |
-| --- | --- |
-| `quill/init.lua` | Session controller. A transition table (`prompting → streaming → reviewing → closed`, with follow-up looping back to `prompting`) owns every state change. An extmark tracks the edited range, so follow-ups stay anchored. |
-| `quill/context.lua` | Builds the request: filetype, surrounding lines, diagnostics in the range, the enclosing Treesitter node, the selection, and the instruction. Follow-ups add the previous proposal as an assistant turn. |
-| `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `cli.lua` runs the Codex and Claude Code CLIs and parses their JSONL events; each CLI is one table entry. `copilot.lua` exchanges the Copilot token, then streams through `http.lua`. `mock.lua` streams a canned reply on a timer. |
-| `quill/hunks.lua` | Pure diff model. `compute` turns `vim.diff` output into hunks, `merge` builds the final text from the accepted ones, `inline` finds the changed words in a line pair. |
-| `quill/render.lua` | Draws the preview with extmarks only: line and word highlights, virtual lines, signs, key chips, and the status float. |
-| `quill/prompt.lua` | The floating instruction input. |
-
-Highlights are mixed from your colorscheme's `DiagnosticError` and `DiagnosticOk` colors over
-its `Normal` background and recomputed on `ColorScheme`. Every group is named `Quill*` and
-defined with `default = true`, so you can override it. See `:help quill-highlights`.
+- Hunks are whole-line diffs, and selections are widened to whole lines.
+- A follow-up resets your hunk decisions.
+- Editing inside the range during a session is not supported.
 
 ## Development
 
 ```sh
-./test.sh                 # headless suites in tests/test_*.lua
-NVIM=/path/to/nvim ./test.sh
+./test.sh                     # headless test suites
+NVIM=/path/to/nvim ./test.sh  # against a specific Neovim
 ```
 
-The suites drive the plugin through real keystrokes with the mock provider, and run curl
-against a local server (`tests/sse_server.py`) for both wire formats and for Copilot's
-token exchange. Fake `codex` and `claude` executables in `tests/bin/` replay event streams
-from `tests/fixtures/`. They need `nvim`, `curl`, and `python3`. `demo/record.sh` re-records the demo (tmux, asciinema 3, agg, ffmpeg).
-
-## Limitations
-
-- Hunks are line diffs, and selections are widened to whole lines.
-- A follow-up re-diffs against the original selection and resets hunk decisions.
-- Editing text inside the range during a session is not handled.
-- Session keys shadow normal-mode keys while a session is open.
-
-## Roadmap
-
-- Generate at the cursor without a selection
-- Next-edit suggestions
-- Saved prompts
-- A documented Lua API
+Tests need `nvim`, `curl`, and `python3`. `demo/record.sh` re-records the demo.
 
 ## License
 

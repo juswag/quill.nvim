@@ -1,5 +1,6 @@
-demo/.deps/
 demo/demo.cast
 demo/demo.mp4
-demo/raw.gif
+demo/demo-dark.mp4
+demo/events.txt
+demo/sheet.png
 doc/tags
