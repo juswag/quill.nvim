@@ -14,6 +14,8 @@ M.config = {
     mock = {},
     openai = {},
     anthropic = {},
+    codex = {},
+    claude_code = {},
   },
   context_lines = 20,
   mapping = "<leader>k",

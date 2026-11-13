@@ -3,12 +3,6 @@ H.bootstrap()
 local ai = require("quill")
 local context = require("quill.context")
 
--- Not registered as user-facing providers yet; wire the CLI entries in for the tests.
-local registry = require("quill.providers")
-local cli = require("quill.providers.cli")
-registry.codex = cli.new("codex")
-registry.claude_code = cli.new("claude_code")
-
 local bin = vim.fn.fnamemodify("tests/bin", ":p"):gsub("/$", "")
 vim.env.PATH = bin .. ":" .. vim.env.PATH
 local log = vim.fn.tempname()
