@@ -20,7 +20,8 @@ Select lines, describe a change, and quill streams the model's rewrite as a
 preview drawn with extmarks over your code. The buffer is not modified while
 you review. Accepted hunks are written in one change, so one |u| undoes them.
 
-Requires Neovim 0.10 or newer and `curl` on $PATH.
+Requires Neovim 0.10 or newer and `curl` on $PATH. The `codex` and
+`claude_code` providers need their CLI on $PATH instead.
 
 ==============================================================================
 2. SETUP                                                         *quill-setup*
@@ -37,6 +38,8 @@ require("quill").setup({opts})
         anthropic = { base_url = "https://api.anthropic.com/v1",
                       model = "claude-sonnet-4-5",
                       api_key_env = "ANTHROPIC_API_KEY" },
+        codex = {},
+        claude_code = {},
         mock = {},
       },
       context_lines = 20,
@@ -83,11 +86,13 @@ closes. The mappings are removed when the session ends.
 ==============================================================================
 5. PROVIDERS                                                 *quill-providers*
 
-`openai`     Chat Completions with `stream = true`. Works with any
-             OpenAI-compatible server through `base_url`.
-`anthropic`  Messages API with `stream = true`.
-`mock`       Offline. Streams `response` (a string or a function of the
-             request) in chunks. Used by the tests and the demo.
+`openai`       Chat Completions with `stream = true`. Works with any
+               OpenAI-compatible server through `base_url`.
+`anthropic`    Messages API with `stream = true`.
+`codex`        ChatGPT plan through the Codex CLI. No API key.
+`claude_code`  Claude plan through Claude Code. No API key.
+`mock`         Offline. Streams `response` (a string or a function of the
+               request) in chunks. Used by the tests and the demo.
 
 Each entry accepts `base_url`, `model`, `api_key_env`, and `api_key`. An
 entry with `format = "openai"` or `format = "anthropic"` reuses that wire
@@ -97,6 +102,34 @@ format under its own name: >lua
                  model = "qwen2.5-coder", api_key = "ollama" },
     }
 <
+                                                         *quill-subscriptions*
+Subscription providers ~
+
+`codex` and `claude_code` run the CLI once per request. The prompt goes on
+stdin and quill reads the CLI's JSON event stream. Setup: >sh
+    npm i -g @openai/codex && codex login
+    npm i -g @anthropic-ai/claude-code   # then run `claude` and `/login`
+<
+Options for both:
+    `cmd`         Executable. Defaults to `codex` or `claude` on $PATH.
+    `args`        Replaces the default flags below.
+    `model`       Passed as `-m` (codex) or `--model` (claude). Unset uses
+                  the CLI's default.
+    `timeout_ms`  Kill the CLI after this long. Default 120000.
+    `cwd`         Working directory. Default |stdpath()| "cache".
+
+Default `args` for `codex`, followed by `-` so the prompt is read from
+stdin: >
+    exec --json --sandbox read-only --skip-git-repo-check --ephemeral
+    --color never
+<
+Default `args` for `claude_code`, followed by `--system-prompt`: >
+    -p --output-format stream-json --verbose --include-partial-messages
+    --tools "" --strict-mcp-config --no-session-persistence
+<
+Claude Code streams text as it arrives. Codex reports its answer whole when
+the turn ends, so the preview appears at once.
+
 ==============================================================================
 6. HIGHLIGHTS                                               *quill-highlights*
 

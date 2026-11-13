@@ -8,7 +8,7 @@ reviewing, and everything you accepted lands as one undo step.
 
 ![quill.nvim demo](assets/demo.gif)
 
-Requires Neovim 0.10 or newer and `curl`.
+Requires Neovim 0.10 or newer and `curl`. The `codex` and `claude_code` providers need their CLI instead.
 
 ## Install
 
@@ -31,6 +31,8 @@ require("quill").setup({
   providers = {
     openai = { base_url = "https://api.openai.com/v1", model = "gpt-4o-mini", api_key_env = "OPENAI_API_KEY" },
     anthropic = { base_url = "https://api.anthropic.com/v1", model = "claude-sonnet-4-5", api_key_env = "ANTHROPIC_API_KEY" },
+    codex = {},               -- ChatGPT plan through the Codex CLI (see below)
+    claude_code = {},         -- Claude plan through Claude Code
     mock = {},                -- offline provider used by the tests and the demo
   },
   context_lines = 20,         -- lines above and below the selection sent as context
@@ -63,6 +65,32 @@ opts = {
 API keys are read from the environment variable named by `api_key_env`. A provider entry
 with `format = "openai"` or `format = "anthropic"` reuses that wire format under its own name.
 
+### Use a subscription instead of an API key
+
+Two providers reuse a sign-in you already have, so no API key is needed.
+
+| Provider | Uses | Setup |
+| --- | --- | --- |
+| `codex` | ChatGPT plan via the [Codex CLI](https://github.com/openai/codex) | `npm i -g @openai/codex && codex login` |
+| `claude_code` | Claude Pro/Max plan via [Claude Code](https://docs.claude.com/en/docs/claude-code) | `npm i -g @anthropic-ai/claude-code`, then run `claude` and `/login` |
+```lua
+opts = { provider = "codex" }
+opts = { provider = "claude_code", providers = { claude_code = { model = "sonnet" } } }
+```
+
+`codex` and `claude_code` run the CLI once per request with the prompt on stdin and read
+its JSON event stream. quill runs them read-only: Codex gets `--sandbox read-only`, and
+Claude Code gets `--tools ""`. Each accepts:
+
+- `cmd`: the executable, if it is not `codex` or `claude` on `$PATH`.
+- `args`: replaces the default flags (listed in `:h quill-providers`).
+- `model`: passed as `-m` or `--model`. Unset uses the CLI's own default.
+- `timeout_ms`: kills the CLI after this long (default 120000).
+
+Claude Code streams text as it is generated. Codex reports its answer in one piece when
+the turn ends, so the preview fills in all at once. Expect a few seconds of CLI startup
+on each request with either.
+
 ## Usage
 
 1. Select lines in visual mode and press `<leader>k`, or run `:'<,'>Quill`.
@@ -93,7 +121,7 @@ from anywhere in the buffer.
 | --- | --- |
 | `quill/init.lua` | Session controller. A transition table (`prompting → streaming → reviewing → closed`, with follow-up looping back to `prompting`) owns every state change. An extmark tracks the edited range, so follow-ups stay anchored. |
 | `quill/context.lua` | Builds the request: filetype, surrounding lines, diagnostics in the range, the enclosing Treesitter node, the selection, and the instruction. Follow-ups add the previous proposal as an assistant turn. |
-| `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `cli.lua` runs a CLI per request and parses its JSONL events; each CLI is one table entry. `mock.lua` streams a canned reply on a timer. |
+| `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `cli.lua` runs the Codex and Claude Code CLIs and parses their JSONL events; each CLI is one table entry. `mock.lua` streams a canned reply on a timer. |
 | `quill/hunks.lua` | Pure diff model. `compute` turns `vim.diff` output into hunks, `merge` builds the final text from the accepted ones, `inline` finds the changed words in a line pair. |
 | `quill/render.lua` | Draws the preview with extmarks only: line and word highlights, virtual lines, signs, key chips, and the status float. |
 | `quill/prompt.lua` | The floating instruction input. |
