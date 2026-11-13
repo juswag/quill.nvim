@@ -9,9 +9,11 @@ local registry = require("quill.providers")
 local M = {}
 
 M.config = {
-  provider = "mock",
+  provider = "openai",
   providers = {
     mock = {},
+    openai = {},
+    anthropic = {},
   },
   context_lines = 20,
   mapping = "<leader>k",
