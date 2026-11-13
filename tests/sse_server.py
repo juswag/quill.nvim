@@ -9,6 +9,28 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def do_GET(self):
+        # Copilot token exchange: `gho_short` gets a token that is already near expiry.
+        auth = self.headers.get("Authorization", "")
+        with open(LOG, "a") as f:
+            f.write(json.dumps({"path": self.path, "headers": dict(self.headers)}) + "\n")
+        if not auth.startswith("token gho_"):
+            self.send_response(401)
+            self.end_headers()
+            self.wfile.write(b'{"message":"Bad credentials"}')
+            return
+        ttl = 30 if auth.endswith("gho_short") else 1800
+        body = {
+            "token": "tid=copilot-" + auth.split()[-1],
+            "expires_at": int(time.time()) + ttl,
+            "refresh_in": ttl - 300,
+            "endpoints": {"api": f"http://127.0.0.1:{self.server.server_port}/copilot"},
+        }
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(body).encode())
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(LOG, "a") as f:

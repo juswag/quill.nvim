@@ -166,4 +166,89 @@ H.test("args override replaces the default flags", function()
   H.eq({ "exec", "--json", "-c", "model_reasoning_effort=low", "-" }, last_record().argv, "argv")
 end)
 
+-- Copilot: token exchange + chat completions against tests/sse_server.py.
+local port = 18766
+local server_log = vim.fn.tempname()
+local server = vim.system({ "python3", vim.fn.fnamemodify("tests/sse_server.py", ":p"), tostring(port), server_log })
+vim.wait(3000, function()
+  return vim.system({ "curl", "-s", "-o", "/dev/null", ("http://127.0.0.1:%d/ping"):format(port) }):wait().code == 0
+end, 100)
+
+local function requests(path_suffix)
+  local out = {}
+  for _, line in ipairs(vim.fn.readfile(server_log)) do
+    local r = vim.json.decode(line)
+    if r.path:sub(-#path_suffix) == path_suffix then
+      out[#out + 1] = r
+    end
+  end
+  return out
+end
+
+local function copilot_dir(file, oauth)
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  local data = { ["github.com:Iv1.b507a08c87ecfe98"] = { user = "juswag", oauth_token = oauth, githubAppId = "Iv1.b507a08c87ecfe98" } }
+  if file == "hosts.json" then
+    data = { ["github.com"] = { user = "juswag", oauth_token = oauth } }
+  end
+  vim.fn.writefile({ vim.json.encode(data) }, dir .. "/" .. file)
+  return dir
+end
+
+local function copilot(dir)
+  return { provider = "copilot", providers = { copilot = { config_dir = dir, token_url = ("http://127.0.0.1:%d/copilot_internal/v2/token"):format(port) } } }
+end
+
+local function run_copilot()
+  local buf = H.buffer({ "local x = 1", "return x" })
+  ai.start(1, 2, { instruction = "bump" })
+  H.wait_phase("reviewing", 5000)
+  H.eq({ "local x = 2", "return x" }, ai.get_session().proposed, "streamed through the SSE path")
+  H.keys("A")
+  H.eq({ "local x = 2", "return x" }, H.lines(buf), "applied")
+end
+
+H.test("copilot exchanges the apps.json token and streams chat completions", function()
+  setup(copilot(copilot_dir("apps.json", "gho_apps")))
+  run_copilot()
+  local ex = requests("/copilot_internal/v2/token")
+  H.eq("token gho_apps", ex[#ex].headers.Authorization, "OAuth token sent to the exchange")
+  local chat = requests("/copilot/chat/completions")
+  local req = chat[#chat]
+  H.eq("Bearer tid=copilot-gho_apps", req.headers.Authorization, "short-lived token used for chat")
+  H.eq("vscode-chat", req.headers["Copilot-Integration-Id"], "integration id")
+  H.ok(req.headers["Editor-Version"]:match("^Neovim/%d+%.%d+%.%d+$"), "editor version")
+  H.ok(req.headers["Editor-Plugin-Version"], "plugin version")
+  H.eq("gpt-5-mini", req.body.model, "default model")
+  H.eq(true, req.body.stream, "stream flag")
+end)
+
+H.test("copilot reuses the cached token until it nears expiry", function()
+  local dir = copilot_dir("hosts.json", "gho_hosts")
+  setup(copilot(dir))
+  run_copilot()
+  run_copilot()
+  local function exchanges(oauth)
+    return #vim.tbl_filter(function(r) return r.headers.Authorization == "token " .. oauth end, requests("/copilot_internal/v2/token"))
+  end
+  H.eq(1, exchanges("gho_hosts"), "hosts.json token exchanged once for two requests")
+  setup(copilot(copilot_dir("apps.json", "gho_short")))
+  run_copilot()
+  run_copilot()
+  H.eq(2, exchanges("gho_short"), "a token within a minute of expiry is refreshed")
+end)
+
+H.test("copilot without a sign-in says where it looked", function()
+  local dir = vim.fn.tempname()
+  local msgs = run_failing(copilot(dir), "bump")
+  H.ok(msgs[1]:find(dir, 1, true) and msgs[1]:find("apps,hosts", 1, true), msgs[1])
+end)
+
+H.test("copilot reports a rejected token exchange", function()
+  local msgs = run_failing(copilot(copilot_dir("apps.json", "bad")), "bump")
+  H.ok(msgs[1]:find("token exchange failed", 1, true) and msgs[1]:find("Bad credentials", 1, true), msgs[1])
+end)
+
+server:kill("sigterm")
 H.finish()
