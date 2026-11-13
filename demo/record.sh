@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Records demo/demo.cast by driving nvim inside tmux, logging each key and step to
-# demo/events.txt, then renders assets/demo.gif and demo/demo.mp4 with demo/render.py.
-# Needs tmux, asciinema, python3 with pillow and pyte, ffmpeg, and gifski.
+# demo/events.txt, then renders assets/demo.gif, assets/demo-dark.gif and their MP4s with demo/render.py.
+# Needs tmux, asciinema, python3 with pillow and pyte, and ffmpeg.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cols=90 rows=22

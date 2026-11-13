@@ -8,7 +8,10 @@
 Select code, describe the change, and review the rewrite hunk by hunk before it touches
 your buffer.
 
-![quill.nvim demo](assets/demo.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo-dark.gif">
+  <img src="assets/demo.gif" alt="quill.nvim demo">
+</picture>
 
 ## Features
 

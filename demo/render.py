@@ -1,8 +1,10 @@
-# Renders demo/demo.cast + demo/events.txt into assets/demo.gif and demo/demo.mp4.
+# Renders demo/demo.cast + demo/events.txt into the README demo GIFs and MP4s, once per theme.
 # The terminal is rasterized with pyte (agg drops strikethrough); captions, key chips,
 # the cursor and the hunk marker are drawn here so they can ease between states.
-# Usage: render.py            full render
-#        render.py sheet T...  contact sheet of frames at cast times T (demo/sheet.png)
+# The recording uses the light palette; the dark render maps each highlight color to its
+# DEMO_THEME=dark counterpart from demo/init.lua, so both share one recording and timing.
+# Usage: render.py [light|dark]          full render, both themes by default
+#        render.py sheet THEME T...      contact sheet of frames at cast times T (demo/sheet.png)
 import json, os, shutil, subprocess, sys, tempfile
 import pyte
 from fontTools.ttLib import TTFont
@@ -11,7 +13,15 @@ from PIL import Image, ImageDraw, ImageFilter, ImageFont
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 FPS, OUT_W = 25, 960
-INK, GREY, LINE, PAPER, RED = "#0d1117", "#6e7781", "#d0d7de", "#ffffff", "#E5482D"
+RED, ON_RED = "#E5482D", "#ffffff"
+# canvas matches GitHub's page background so the GIF edges disappear; window matches nvim's Normal bg.
+THEMES = {
+    "light": dict(canvas="#ffffff", window="#ffffff", border="#d0d7de", ink="#0d1117", shadow=True,
+                  gif="assets/demo.gif", mp4="demo/demo.mp4"),
+    "dark": dict(canvas="#0d1117", window="#161b22", border="#30363d", ink="#e6edf3", shadow=False,
+                 gif="assets/demo-dark.gif", mp4="demo/demo-dark.mp4"),
+}
+T = None
 PLEX = "/usr/share/fonts/truetype/sand-box/google/IBM Plex Mono/IBMPlexMono-"
 DEJAVU = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
 
@@ -61,21 +71,56 @@ START_T = STEPS[0][0] - 0.8
 LABELS = {"Space k": "space k", "Enter": "enter"}
 
 # --- terminal ---------------------------------------------------------------------------
-def color(c, default):
-    return "#" + c if len(c) == 6 else default
+DUMP_HL = """
+local out = {}
+for name in pairs(vim.api.nvim_get_hl(0, {})) do
+  local r = vim.api.nvim_get_hl(0, { name = name, link = false })
+  out[name] = { fg = r.fg and ("%06x"):format(r.fg), bg = r.bg and ("%06x"):format(r.bg) }
+end
+vim.fn.writefile({ vim.json.encode(out) }, vim.env.OUT)
+"""
+
+def highlights(theme):
+    with tempfile.TemporaryDirectory() as tmp:
+        lua, out = os.path.join(tmp, "dump.lua"), os.path.join(tmp, "hl.json")
+        open(lua, "w").write(DUMP_HL)
+        subprocess.run(["nvim", "--headless", "-u", os.path.join(HERE, "init.lua"), "-i", "NONE", os.path.join(HERE, "sample.lua"),
+                        "-c", "luafile " + lua, "-c", "qa!"], env={**os.environ, "DEMO_THEME": theme, "OUT": out}, check=True)
+        return {k: v for k, v in json.load(open(out)).items() if isinstance(v, dict)}
+
+def recolor_map(theme):
+    """(role, recorded hex) -> hex for `theme`, matched by highlight group name."""
+    if theme == "light":
+        return {}
+    src, dst = highlights("light"), highlights(theme)
+    out = {}
+    for name, spec in src.items():
+        for role in ("fg", "bg"):
+            a, b = spec.get(role), dst.get(name, {}).get(role)
+            if a and b and out.setdefault((role, a), b) != b:
+                sys.exit(f"{name}.{role}: {a} maps to both {out[(role, a)]} and {b}")
+    return out
+
+def color(c, role):
+    default = T["ink"] if role == "fg" else T["window"]
+    if len(c) != 6:
+        return default
+    if not T["map"]:
+        return "#" + c
+    return "#" + T["map"][(role, c)] if (role, c) in T["map"] else default
 
 def term_image(screen):
-    im = Image.new("RGB", (TERM_W, TERM_H), PAPER)
+    im = Image.new("RGB", (TERM_W, TERM_H), T["window"])
     d = ImageDraw.Draw(im)
     for y in range(ROWS):
         row = screen.buffer[y]
         for x in range(COLS):
             ch = row[x]
-            fg, bg = color(ch.fg, INK), color(ch.bg, PAPER)
+            fg, bg = color(ch.fg, "fg"), color(ch.bg, "bg")
             if ch.reverse:
                 fg, bg = bg, fg
             x0, y0 = x * CW, y * CH
-            if bg != PAPER:
+            if bg != T["window"]:
                 d.rectangle([x0, y0, x0 + CW - 1, y0 + CH - 1], fill=bg)
             if ch.data.strip():
                 font = FONTS[(int(ch.bold), int(ch.italics))] if ord(ch.data[0]) in PLEX_CMAP else SYM
@@ -110,16 +155,15 @@ def screens():
 
 # --- static chrome ----------------------------------------------------------------------
 def chrome():
-    im = Image.new("RGB", (W, H), PAPER)
-    shadow = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(shadow).rounded_rectangle([WIN_X, WIN_Y + 10, WIN_X + WIN_W, WIN_Y + WIN_H + 10], 18, fill=26)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(18))
-    im.paste(Image.new("RGB", (W, H), INK), (0, 0), shadow)
+    im = Image.new("RGB", (W, H), T["canvas"])
+    if T["shadow"]:
+        shadow = Image.new("L", (W, H), 0)
+        ImageDraw.Draw(shadow).rounded_rectangle([WIN_X, WIN_Y + 10, WIN_X + WIN_W, WIN_Y + WIN_H + 10], 18, fill=26)
+        shadow = shadow.filter(ImageFilter.GaussianBlur(18))
+        im.paste(Image.new("RGB", (W, H), T["ink"]), (0, 0), shadow)
     d = ImageDraw.Draw(im)
-    d.rounded_rectangle([WIN_X, WIN_Y, WIN_X + WIN_W, WIN_Y + WIN_H], 16, fill=PAPER, outline=LINE, width=2)
+    d.rounded_rectangle([WIN_X, WIN_Y, WIN_X + WIN_W, WIN_Y + WIN_H], 16, fill=T["window"], outline=T["border"], width=2)
     return im
-
-CHROME = chrome()
 
 # --- overlays ---------------------------------------------------------------------------
 def draw_caption(base, t):
@@ -139,9 +183,9 @@ def draw_caption(base, t):
         if alpha <= 0.01:
             continue
         y = FOOT_Y + dy
-        d.rounded_rectangle([WIN_X, y - 24, WIN_X + 48, y + 24], 6, fill=mix(PAPER, RED, alpha))
-        d.text((WIN_X + 24, y), str(i + 1), font=NUM_FONT, fill=PAPER, anchor="mm")
-        d.text((WIN_X + 72, y), label, font=CAP_FONT, fill=mix(PAPER, INK, alpha), anchor="lm")
+        d.rounded_rectangle([WIN_X, y - 24, WIN_X + 48, y + 24], 6, fill=mix(T["canvas"], RED, alpha))
+        d.text((WIN_X + 24, y), str(i + 1), font=NUM_FONT, fill=mix(RED, ON_RED, alpha), anchor="mm")
+        d.text((WIN_X + 72, y), label, font=CAP_FONT, fill=mix(T["canvas"], T["ink"], alpha), anchor="lm")
 
 def chips_at(t):
     """Keys pressed in the current step, newest last, with typed text revealed per character."""
@@ -166,9 +210,10 @@ def draw_chips(base, t):
         w = d.textlength(label, font=CHIP_FONT) + 36
         alpha = k * (1 - out_k)
         y = FOOT_Y + (1 - k) * 18
-        fill = mix(PAPER, RED, alpha) if newest else PAPER
-        text = PAPER if newest else mix(PAPER, INK, alpha)
-        outline = fill if newest else mix(PAPER, LINE, alpha)
+        canvas = T["canvas"]
+        fill = mix(canvas, RED, alpha) if newest else canvas
+        text = mix(canvas, ON_RED, alpha) if newest else mix(canvas, T["ink"], alpha)
+        outline = fill if newest else mix(canvas, T["border"], alpha)
         d.rounded_rectangle([x - w, y - 26, x, y + 26], 8, fill=fill, outline=outline, width=2)
         d.text((x - w / 2, y), label, font=CHIP_FONT, fill=text, anchor="mm")
         x -= w + 14
@@ -190,20 +235,20 @@ class Glide:
 
 def frames():
     caret, marker = Glide(0.08), Glide(0.24)
-    first = None
+    first, base = None, chrome()
     for t, term, cur, under, status in screens():
-        im = CHROME.copy()
+        im = base.copy()
         im.paste(term, (TERM_X, TERM_Y))
         d = ImageDraw.Draw(im)
         pos = caret.at(t, cur)
         if pos and cur:
             x0, y0 = TERM_X + pos[0] * CW, TERM_Y + pos[1] * CH
             if "INSERT" in status:
-                d.rectangle([x0, y0 + 4, x0 + 3, y0 + CH - 4], fill=INK)
+                d.rectangle([x0, y0 + 4, x0 + 3, y0 + CH - 4], fill=T["ink"])
             else:
-                d.rectangle([x0, y0 + 2, x0 + CW - 1, y0 + CH - 3], fill=INK)
+                d.rectangle([x0, y0 + 2, x0 + CW - 1, y0 + CH - 3], fill=T["ink"])
                 if under.strip() and pos == cur:
-                    d.text((x0, y0 + CH // 2), under, font=FONTS[(0, 0)], fill=PAPER, anchor="lm")
+                    d.text((x0, y0 + CH // 2), under, font=FONTS[(0, 0)], fill=T["window"], anchor="lm")
         reviewing = "reviewing" in status
         row = marker.at(t, (0, cur[1]) if reviewing and cur else None)
         if reviewing and row:
@@ -218,9 +263,31 @@ def frames():
             im = Image.blend(im, first, k)
         yield t, im.resize((OUT_W, H * OUT_W // W), Image.LANCZOS)
 
+def use(theme):
+    global T
+    T = dict(THEMES[theme], map=recolor_map(theme))
+
+def render(theme):
+    use(theme)
+    tmp = tempfile.mkdtemp()
+    n = 0
+    for _, im in frames():
+        im.save(os.path.join(tmp, f"{n:05d}.png"))
+        n += 1
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(tmp, "%05d.png"),
+                    "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+                    os.path.join(ROOT, T["mp4"])], check=True)
+    # One palette for the whole clip and no dithering, so the canvas stays exactly the page color.
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(tmp, "%05d.png"), "-vf",
+                    "split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle",
+                    os.path.join(ROOT, T["gif"])], check=True)
+    shutil.rmtree(tmp)
+    print(f"{T['gif']}: {n} frames, {n / FPS:.1f}s")
+
 def main():
     if sys.argv[1:2] == ["sheet"]:
-        want = sorted(float(x) for x in sys.argv[2:])
+        use(sys.argv[2])
+        want = sorted(float(x) for x in sys.argv[3:])
         got = []
         for t, im in frames():
             if want and t >= want[0]:
@@ -233,19 +300,7 @@ def main():
             sheet.paste(im, (12 + (n % cols) * (w + 12), 12 + (n // cols) * (h + 12)))
         sheet.save(os.path.join(HERE, "sheet.png"))
         return
-    tmp = tempfile.mkdtemp()
-    n = 0
-    for _, im in frames():
-        im.save(os.path.join(tmp, f"{n:05d}.png"))
-        n += 1
-    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-framerate", str(FPS), "-i", os.path.join(tmp, "%05d.png"),
-                    "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-movflags", "+faststart",
-                    os.path.join(HERE, "demo.mp4")], check=True)
-    pngs = sorted(os.path.join(tmp, f) for f in os.listdir(tmp))
-    gifski = shutil.which("gifski") or os.path.expanduser("~/bin/gifski")
-    subprocess.run([gifski, "--quiet", "--fps", str(FPS), "--quality", "90", "-o", os.path.join(ROOT, "assets", "demo.gif")] + pngs,
-                   check=True)
-    shutil.rmtree(tmp)
-    print(f"{n} frames, {n / FPS:.1f}s")
+    for theme in sys.argv[1:] or THEMES:
+        render(theme)
 
 main()
