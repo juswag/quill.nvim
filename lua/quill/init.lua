@@ -28,6 +28,7 @@ M.config = {
     next = "]h",
     prev = "[h",
     followup = "f",
+    edit = "e",
     cancel = { "q", "<Esc>" },
   },
 }
@@ -442,6 +443,12 @@ function M.cancel()
   if s then
     close(s, "cancel")
   end
+  require("quill.ask").cancel()
+end
+
+--- Asks about the code under the cursor; see quill.ask.
+function M.ask(question)
+  return require("quill.ask").open(question)
 end
 
 function M.accept(all) local s = current_session() if s then resolve(s, "accepted", all) end end
@@ -459,6 +466,7 @@ function M.setup(user)
   render.define_highlights()
   if M.config.mapping then
     vim.keymap.set("x", M.config.mapping, ":Quill<CR>", { silent = true, desc = "Quill: inline edit" })
+    vim.keymap.set("n", M.config.mapping, M.ask, { desc = "Quill: ask about code" })
   end
 end
 
