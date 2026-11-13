@@ -7,4 +7,5 @@ return {
   anthropic = http.new("anthropic"),
   codex = cli.new("codex"),
   claude_code = cli.new("claude_code"),
+  copilot = require("quill.providers.copilot"),
 }

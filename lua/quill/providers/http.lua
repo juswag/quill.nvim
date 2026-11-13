@@ -149,4 +149,6 @@ function M.new(format_name)
   end
 end
 
+M.formats = formats
+
 return M

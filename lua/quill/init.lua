@@ -16,6 +16,7 @@ M.config = {
     anthropic = {},
     codex = {},
     claude_code = {},
+    copilot = {},
   },
   context_lines = 20,
   mapping = "<leader>k",

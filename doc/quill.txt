@@ -40,6 +40,7 @@ require("quill").setup({opts})
                       api_key_env = "ANTHROPIC_API_KEY" },
         codex = {},
         claude_code = {},
+        copilot = { model = "gpt-5-mini" },
         mock = {},
       },
       context_lines = 20,
@@ -91,6 +92,7 @@ closes. The mappings are removed when the session ends.
 `anthropic`    Messages API with `stream = true`.
 `codex`        ChatGPT plan through the Codex CLI. No API key.
 `claude_code`  Claude plan through Claude Code. No API key.
+`copilot`      GitHub Copilot plan through an existing Copilot sign-in.
 `mock`         Offline. Streams `response` (a string or a function of the
                request) in chunks. Used by the tests and the demo.
 
@@ -129,6 +131,18 @@ Default `args` for `claude_code`, followed by `--system-prompt`: >
 <
 Claude Code streams text as it arrives. Codex reports its answer whole when
 the turn ends, so the preview appears at once.
+
+`copilot` reads the OAuth token that copilot.vim or copilot.lua saved in
+`$XDG_CONFIG_HOME/github-copilot/apps.json` or `hosts.json` (default
+`~/.config`), exchanges it at `token_url` for a short-lived API token, caches
+that until a minute before it expires, and streams Chat Completions from the
+endpoint the exchange returns. Sign in once with `:Copilot setup`
+(copilot.vim) or `:Copilot auth` (copilot.lua). Options: `model` (default
+"gpt-5-mini"), `config_dir`, `token_url`, `base_url` (used when the exchange
+returns no endpoint).
+
+The Copilot token exchange is GitHub's internal, undocumented API. It is not
+a public interface and may change or stop working without notice.
 
 ==============================================================================
 6. HIGHLIGHTS                                               *quill-highlights*
