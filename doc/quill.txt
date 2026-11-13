@@ -63,6 +63,11 @@ require("quill").setup({opts})
 :[range]Quill [instruction]
     Start an edit on [range]. Without [instruction] a prompt opens.
 
+    The prompt buffer has 'filetype' `quill_prompt`, and completion is turned
+    off in it for blink.cmp, nvim-cmp, mini.completion, and built-in
+    completion, so <CR> always submits. Match the filetype to exclude it from
+    another completion plugin.
+
                                                                 *:QuillCancel*
 :QuillCancel
     Cancel the session in the current buffer and stop its request.

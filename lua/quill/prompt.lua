@@ -4,6 +4,25 @@ local M = {}
 local ns = vim.api.nvim_create_namespace("quill_prompt")
 local WIDTH = 64
 
+-- The prompt is a scratch buffer, so completion plugins attach to it and their popup steals
+-- <CR>. Opt out through each plugin's documented per-buffer switch, plus a filetype users
+-- can match in their own config.
+local function disable_completion(buf)
+  vim.bo[buf].filetype = "quill_prompt"
+  vim.bo[buf].complete = ""
+  if vim.fn.exists("+autocomplete") == 1 then -- Neovim 0.12 built-in autocompletion
+    vim.bo[buf].autocomplete = false
+  end
+  vim.b[buf].completion = false -- blink.cmp
+  vim.b[buf].minicompletion_disable = true -- mini.completion
+  local cmp = package.loaded.cmp -- nvim-cmp; don't force-load it
+  if cmp and cmp.setup and cmp.setup.buffer then
+    vim.api.nvim_buf_call(buf, function()
+      cmp.setup.buffer({ enabled = false })
+    end)
+  end
+end
+
 local function decorate(buf, placeholder)
   vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
   local empty = (vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or "") == ""
@@ -18,6 +37,7 @@ end
 function M.open(opts)
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden = "wipe"
+  disable_completion(buf)
   local above = opts.row - vim.fn.line("w0", opts.win) + 1 >= 3
   local width = math.min(WIDTH, vim.api.nvim_win_get_width(opts.win) - 8)
   local win = vim.api.nvim_open_win(buf, true, {
