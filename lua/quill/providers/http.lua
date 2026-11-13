@@ -39,8 +39,8 @@ local formats = {
   },
 }
 
---- Splits an SSE byte stream into `data:` payloads, carrying partial lines across chunks.
-function M.sse_decoder(on_data)
+--- Splits a byte stream into lines, carrying a partial line across chunks.
+function M.line_decoder(on_line)
   local pending = ""
   return function(chunk)
     pending = pending .. chunk
@@ -51,12 +51,88 @@ function M.sse_decoder(on_data)
       end
       local line = pending:sub(1, nl - 1):gsub("\r$", "")
       pending = pending:sub(nl + 1)
-      local data = line:match("^data:%s?(.*)$")
-      if data and data ~= "" then
-        on_data(data)
-      end
+      on_line(line)
     end
   end
+end
+
+--- Splits an SSE byte stream into `data:` payloads.
+function M.sse_decoder(on_data)
+  return M.line_decoder(function(line)
+    local data = line:match("^data:%s?(.*)$")
+    if data and data ~= "" then
+      on_data(data)
+    end
+  end)
+end
+
+--- POSTs `body` as JSON and feeds each SSE event through `extract` (event -> text, or error()).
+function M.stream(url, headers, body, extract, cb)
+  local cmd = { "curl", "-sS", "-N", "--fail-with-body", "-X", "POST", url, "-H", "Content-Type: application/json" }
+  for _, h in ipairs(headers) do
+    vim.list_extend(cmd, { "-H", h })
+  end
+  vim.list_extend(cmd, { "--data-binary", "@-" })
+
+  local finished, raw = false, {}
+  local function finish(err)
+    if finished then
+      return
+    end
+    finished = true
+    if err then
+      cb.on_error(err)
+    else
+      cb.on_done()
+    end
+  end
+
+  local decode = M.sse_decoder(function(data)
+    if data == "[DONE]" then
+      return
+    end
+    local ok, event = pcall(vim.json.decode, data)
+    if not ok then
+      return
+    end
+    local ok2, text = pcall(extract, event)
+    if not ok2 then
+      finish(tostring(text))
+    elseif type(text) == "string" and text ~= "" then
+      cb.on_chunk(text)
+    end
+  end)
+
+  local job = vim.system(cmd, {
+    stdin = vim.json.encode(body),
+    stdout = function(_, chunk)
+      if chunk then
+        vim.schedule(function()
+          raw[#raw + 1] = chunk
+          if not finished then
+            decode(chunk)
+          end
+        end)
+      end
+    end,
+  }, function(res)
+    vim.schedule(function()
+      if res.code == 0 then
+        finish()
+      else
+        finish(("request failed (curl %d): %s%s"):format(res.code, res.stderr or "", table.concat(raw):sub(1, 300)))
+      end
+    end)
+  end)
+
+  return {
+    cancel = function()
+      finished = true
+      pcall(function()
+        job:kill("sigterm")
+      end)
+    end,
+  }
 end
 
 function M.new(format_name)
@@ -69,72 +145,10 @@ function M.new(format_name)
       return { cancel = function() end }
     end
     local url, headers, body = format.request(req, opts, key)
-    local cmd = { "curl", "-sS", "-N", "--fail-with-body", "-X", "POST", url, "-H", "Content-Type: application/json" }
-    for _, h in ipairs(headers) do
-      vim.list_extend(cmd, { "-H", h })
-    end
-    vim.list_extend(cmd, { "--data-binary", "@-" })
-
-    local finished, raw = false, {}
-    local function finish(err)
-      if finished then
-        return
-      end
-      finished = true
-      if err then
-        cb.on_error(err)
-      else
-        cb.on_done()
-      end
-    end
-
-    local decode = M.sse_decoder(function(data)
-      if data == "[DONE]" then
-        return
-      end
-      local ok, event = pcall(vim.json.decode, data)
-      if not ok then
-        return
-      end
-      local ok2, text = pcall(format.extract, event)
-      if not ok2 then
-        finish(tostring(text))
-      elseif type(text) == "string" and text ~= "" then
-        cb.on_chunk(text)
-      end
-    end)
-
-    local job = vim.system(cmd, {
-      stdin = vim.json.encode(body),
-      stdout = function(_, chunk)
-        if chunk then
-          vim.schedule(function()
-            raw[#raw + 1] = chunk
-            if not finished then
-              decode(chunk)
-            end
-          end)
-        end
-      end,
-    }, function(res)
-      vim.schedule(function()
-        if res.code == 0 then
-          finish()
-        else
-          finish(("request failed (curl %d): %s%s"):format(res.code, res.stderr or "", table.concat(raw):sub(1, 300)))
-        end
-      end)
-    end)
-
-    return {
-      cancel = function()
-        finished = true
-        pcall(function()
-          job:kill("sigterm")
-        end)
-      end,
-    }
+    return M.stream(url, headers, body, format.extract, cb)
   end
 end
+
+M.formats = formats
 
 return M
