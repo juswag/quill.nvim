@@ -133,14 +133,6 @@ require("quill").setup({
 120000). Every highlight group is named `Quill*` and can be overridden. Full reference:
 `:help quill.txt`.
 
-## How it works
-
-![Architecture](docs/arch.png)
-
-A small state machine (prompting, streaming, reviewing) drives each session. Providers
-stream text through curl or a CLI, `vim.diff` splits the result into hunks, and the preview
-is drawn with extmarks only, so the buffer is written once at the end.
-
 ## Limitations
 
 - Hunks are whole-line diffs, and selections are widened to whole lines.
