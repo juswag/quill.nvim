@@ -37,10 +37,10 @@ require("quill").setup({
     mock = {},                -- offline provider used by the tests and the demo
   },
   context_lines = 20,         -- lines above and below the selection sent as context
-  mapping = "<leader>k",      -- visual-mode mapping, false to disable
+  mapping = "<leader>k",      -- visual mode edits, normal mode asks; false to disable
   keys = {
     accept = "a", reject = "r", accept_all = "A", reject_all = "R",
-    next = "]h", prev = "[h", followup = "f", cancel = { "q", "<Esc>" },
+    next = "]h", prev = "[h", followup = "f", edit = "e", cancel = { "q", "<Esc>" },
   },
 })
 ```
@@ -122,6 +122,20 @@ one, so it can change without notice. `model` is any chat model your Copilot pla
 When no pending hunks remain, the accepted hunks are written in one change, so a single `u`
 restores the original. Rejecting everything writes nothing. `:QuillCancel` ends a session
 from anywhere in the buffer.
+
+### Ask about code
+
+Press `<leader>k` in normal mode with nothing selected and type a question, such as
+`why could this return nil?`. The answer streams into a float next to the cursor and the
+buffer is never changed. quill sends the function around the cursor (or `context_lines`
+around it when there is none), the cursor line, and its diagnostics. `:QuillAsk why nil?`
+skips the prompt.
+
+| Key | Action |
+| --- | --- |
+| `f` | Ask a follow-up in the same thread |
+| `e` | Turn the thread into an edit of the function, reviewed hunk by hunk as above |
+| `q` / `<Esc>` | Close the answer |
 
 ## How it works
 
