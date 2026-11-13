@@ -1,4 +1,9 @@
-<p align="center"><img src="assets/banner.png" alt="quill.nvim" width="100%"></p>
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
+    <img src="assets/banner.png" alt="quill.nvim" width="100%">
+  </picture>
+</p>
 
 Select code, describe the change, and watch the rewrite stream in as a preview drawn over
 your code. Accept or reject each hunk. The buffer is not touched until you finish

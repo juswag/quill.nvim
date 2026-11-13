@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="512" height="512">
+  <title>quill.nvim</title>
+  <mask id="bn">
+    <rect x="0" y="0" width="64" height="64" fill="#fff"/>
+    <circle cx="32" cy="32" r="4" fill="#000"/>
+    <rect x="30.5" y="32" width="3" height="22" fill="#000"/>
+  </mask>
+  <path fill="#E5482D" mask="url(#bn)" d="M16 6 H48 V30 L32 60 L16 30 Z"/>
+</svg>
