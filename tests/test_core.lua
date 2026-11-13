@@ -268,6 +268,25 @@ H.test("visual select + <leader>k + typed instruction starts a session", functio
   H.eq(buf, vim.api.nvim_get_current_buf(), "focus back in source buffer")
 end)
 
+H.test("completion plugins are switched off in the prompt", function()
+  use_mock()
+  local cmp_calls = {}
+  package.loaded.cmp = { setup = { buffer = function(cfg)
+    cmp_calls[#cmp_calls + 1] = { buf = vim.api.nvim_get_current_buf(), cfg = cfg }
+  end } }
+  local buf = H.buffer(ORIGINAL)
+  H.keys("ggVj")
+  H.keys(" k")
+  local prompt = vim.api.nvim_get_current_buf()
+  package.loaded.cmp = nil
+  H.ok(prompt ~= buf, "focus in prompt buffer")
+  H.eq("quill_prompt", vim.bo[prompt].filetype, "filetype users can match")
+  H.eq(false, vim.b[prompt].completion, "blink.cmp switch")
+  H.eq(true, vim.b[prompt].minicompletion_disable, "mini.completion switch")
+  H.eq({ { buf = prompt, cfg = { enabled = false } } }, cmp_calls, "nvim-cmp disabled for the prompt buffer only")
+  H.keys("<Esc>")
+end)
+
 H.test("Esc in the first prompt cancels the session", function()
   use_mock()
   local buf = H.buffer(ORIGINAL)
