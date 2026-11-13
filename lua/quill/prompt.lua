@@ -10,9 +10,9 @@ local WIDTH = 64
 local function disable_completion(buf)
   vim.bo[buf].filetype = "quill_prompt"
   vim.bo[buf].complete = ""
-  pcall(function() -- Neovim 0.12 built-in autocompletion
+  if vim.fn.exists("+autocomplete") == 1 then -- Neovim 0.12 built-in autocompletion
     vim.bo[buf].autocomplete = false
-  end)
+  end
   vim.b[buf].completion = false -- blink.cmp
   vim.b[buf].minicompletion_disable = true -- mini.completion
   local cmp = package.loaded.cmp -- nvim-cmp; don't force-load it
