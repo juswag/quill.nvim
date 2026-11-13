@@ -1,0 +1,127 @@
+*quill.txt*  Inline AI edits for Neovim, reviewed hunk by hunk
+
+Author:  Justin Wang
+License: MIT
+
+==============================================================================
+CONTENTS                                                      *quill-contents*
+
+  1. Introduction ............................ |quill-introduction|
+  2. Setup ................................... |quill-setup|
+  3. Commands ................................ |quill-commands|
+  4. Review keys ............................. |quill-keys|
+  5. Providers ............................... |quill-providers|
+  6. Highlights .............................. |quill-highlights|
+
+==============================================================================
+1. INTRODUCTION                                           *quill-introduction*
+
+Select lines, describe a change, and quill streams the model's rewrite as a
+preview drawn with extmarks over your code. The buffer is not modified while
+you review. Accepted hunks are written in one change, so one |u| undoes them.
+
+Requires Neovim 0.10 or newer and `curl` on $PATH.
+
+==============================================================================
+2. SETUP                                                         *quill-setup*
+
+                                                              *quill.setup()*
+require("quill").setup({opts})
+    Merges {opts} into the defaults and creates the visual-mode mapping.
+    Defaults: >lua
+    {
+      provider = "openai",
+      providers = {
+        openai = { base_url = "https://api.openai.com/v1",
+                   model = "gpt-4o-mini", api_key_env = "OPENAI_API_KEY" },
+        anthropic = { base_url = "https://api.anthropic.com/v1",
+                      model = "claude-sonnet-4-5",
+                      api_key_env = "ANTHROPIC_API_KEY" },
+        mock = {},
+      },
+      context_lines = 20,
+      mapping = "<leader>k",
+      keys = {
+        accept = "a", reject = "r", accept_all = "A", reject_all = "R",
+        next = "]h", prev = "[h", followup = "f", cancel = { "q", "<Esc>" },
+      },
+    }
+<
+    `provider`       Name of the entry in `providers` to use.
+    `context_lines`  Lines above and below the selection sent as context.
+    `mapping`        Visual-mode mapping that starts an edit, or false.
+    `keys`           Buffer-local keys active during a session.
+
+==============================================================================
+3. COMMANDS                                                   *quill-commands*
+
+                                                                      *:Quill*
+:[range]Quill [instruction]
+    Start an edit on [range]. Without [instruction] a prompt opens.
+
+                                                                *:QuillCancel*
+:QuillCancel
+    Cancel the session in the current buffer and stop its request.
+
+==============================================================================
+4. REVIEW KEYS                                                    *quill-keys*
+
+While a session is open these normal-mode keys are mapped in the buffer:
+
+  a        Accept the current hunk and move to the next pending one.
+  r        Reject the current hunk and move to the next pending one.
+  A        Accept every remaining hunk.
+  R        Reject every remaining hunk.
+  ]h  [h   Next or previous pending hunk.
+  f        Open a follow-up prompt. The request includes the previous
+           instruction and proposal. The range stays the same.
+  q  <Esc> Cancel the session.
+
+When no pending hunks remain, the accepted hunks are written and the session
+closes. The mappings are removed when the session ends.
+
+==============================================================================
+5. PROVIDERS                                                 *quill-providers*
+
+`openai`     Chat Completions with `stream = true`. Works with any
+             OpenAI-compatible server through `base_url`.
+`anthropic`  Messages API with `stream = true`.
+`mock`       Offline. Streams `response` (a string or a function of the
+             request) in chunks. Used by the tests and the demo.
+
+Each entry accepts `base_url`, `model`, `api_key_env`, and `api_key`. An
+entry with `format = "openai"` or `format = "anthropic"` reuses that wire
+format under its own name: >lua
+    providers = {
+      ollama = { format = "openai", base_url = "http://localhost:11434/v1",
+                 model = "qwen2.5-coder", api_key = "ollama" },
+    }
+<
+==============================================================================
+6. HIGHLIGHTS                                               *quill-highlights*
+
+Diff colors are mixed from the colorscheme's |hl-DiagnosticError| and
+|hl-DiagnosticOk| colors over |hl-Normal| and recomputed on |ColorScheme|.
+All groups are defined with `default = true`, so a colorscheme or your config
+can override them. Without 'termguicolors' the diff groups link to
+|hl-DiffDelete|, |hl-DiffAdd|, and |hl-DiffText|.
+
+  QuillDelete         Removed lines of the current hunk.
+  QuillDeleteText     Changed words inside a removed line.
+  QuillDeleteDim      Removed lines of other hunks.
+  QuillDeleteAccepted Removed lines of an accepted hunk.
+  QuillAdd            Added lines of the current or an accepted hunk.
+  QuillAddText        Changed words inside an added line.
+  QuillAddDim         Added lines of other hunks.
+  QuillFlash          Brief highlight after accepting or applying.
+  QuillPending        Lines the model has not reached yet while streaming.
+  QuillSignDelete  QuillSignAdd  QuillSignDim  QuillSignAccepted
+                      Sign column marks.
+  QuillKey  QuillKeyLabel  QuillInlineKey  QuillInlineLabel  QuillCounter
+                      Key chips in the status float and on the current hunk.
+  QuillStatus  QuillMuted  QuillSpinner  QuillDone  QuillPlus  QuillMinus
+                      Status float text.
+  QuillFloat  QuillBorder  QuillTitle  QuillPlaceholder  QuillPromptIcon
+  QuillGutter         Floats, the prompt, and the virtual-line gutter.
+
+ vim:tw=78:ts=8:ft=help:norl:

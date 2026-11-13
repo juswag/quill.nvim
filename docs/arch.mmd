@@ -1,0 +1,14 @@
+flowchart TD
+    U["Select lines, press &lt;leader&gt;k or :Quill"] --> P["Prompt float<br/>quill/prompt.lua"]
+    P -->|instruction| S["Session controller<br/>quill/init.lua<br/>prompting → streaming → reviewing"]
+    S --> C["Request builder<br/>quill/context.lua<br/>filetype, nearby lines, diagnostics, Treesitter node"]
+    C -->|request| PR["Providers<br/>quill/providers/<br/>openai · anthropic · mock"]
+    PR -->|curl via vim.system| API[("Model API")]
+    API -->|SSE stream| PR
+    PR -->|text so far| S
+    S --> H["Diff model<br/>quill/hunks.lua<br/>line hunks + word ranges"]
+    H --> R["Renderer<br/>quill/render.lua<br/>extmarks, virtual lines, status float"]
+    R -->|preview only| B["Your buffer"]
+    K["a · r · A · R · ]h · [h · f · q"] --> S
+    S -->|accepted hunks, one write, one undo| B
+    S -->|f follow-up| P
