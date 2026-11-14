@@ -28,6 +28,8 @@ M.config = {
     next = "]h",
     prev = "[h",
     followup = "f",
+    edit = { "<CR>", "e" },
+    expand = "<Tab>",
     cancel = { "q", "<Esc>" },
   },
 }
@@ -73,8 +75,6 @@ local function cancel_key()
   return type(c) == "table" and c[1] or c
 end
 
-local SPINNER = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
-
 local function key_chips(pairs_list)
   local chunks = {}
   for _, p in ipairs(pairs_list) do
@@ -89,7 +89,7 @@ local function status_chunks(s)
   if s.phase == "streaming" then
     local st = s.stats
     local out = {
-      { " " .. SPINNER[st.frame % #SPINNER + 1] .. " ", "QuillSpinner" },
+      { " " .. render.spinner(st.frame) .. " ", "QuillSpinner" },
       { "Generating", "QuillStatus" },
       { ("  %s · %d %s · %d tokens  "):format(st.model, #s.proposed, #s.proposed == 1 and "line" or "lines", st.tokens),
         "QuillMuted" },
@@ -453,6 +453,12 @@ function M.cancel()
   if s then
     close(s, "cancel")
   end
+  require("quill.ask").cancel()
+end
+
+--- Asks about the code under the cursor; see quill.ask.
+function M.ask(question)
+  return require("quill.ask").open(question)
 end
 
 function M.accept(all) local s = current_session() if s then resolve(s, "accepted", all) end end
@@ -470,6 +476,7 @@ function M.setup(user)
   render.define_highlights()
   if M.config.mapping then
     vim.keymap.set("x", M.config.mapping, ":Quill<CR>", { silent = true, desc = "Quill: inline edit" })
+    vim.keymap.set("n", M.config.mapping, M.ask, { desc = "Quill: ask about code" })
   end
 end
 

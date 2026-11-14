@@ -18,8 +18,9 @@ Requires Neovim 0.10 or newer and `curl`. The `codex` and `claude_code` provider
 { "juswag/quill.nvim", opts = {} }
 ```
 
-`opts` is passed to `require("quill").setup()`, which also creates the `<leader>k` visual-mode
-mapping. With another plugin manager, call `require("quill").setup({})` yourself.
+`opts` is passed to `require("quill").setup()`, which also creates the `<leader>k` mappings:
+visual mode starts an edit, and normal mode opens the ask box. With another plugin manager,
+call `require("quill").setup({})` yourself.
 
 ## Configuration
 
@@ -123,6 +124,22 @@ When no pending hunks remain, the accepted hunks are written in one change, so a
 restores the original. Rejecting everything writes nothing. `:QuillCancel` ends a session
 from anywhere in the buffer.
 
+To ask a question about the code under the cursor, press `<leader>k` in normal mode, or run
+`:QuillAsk`. Type the question and press `<CR>`. A small box at the cursor shows a spinner,
+then the answer. The request includes the enclosing function (or nearby lines if there is
+no function), the file name, and the filetype, from the current file only. Identifiers and
+line numbers mentioned in the answer are highlighted in the box and in the buffer while the
+box is open. The buffer is not modified. The box closes on `q` or `<Esc>`, or when the
+cursor leaves that function (or those nearby lines).
+
+| Key | Action |
+| --- | --- |
+| `e` / `<CR>` | Close the box and start an edit of the enclosing function, using the question and answer as the instruction |
+| `<Tab>` | Expand an answer that was capped at 8 lines |
+| `q` / `<Esc>` | Close the box |
+
+`:QuillAsk why could this return nil?` skips the prompt.
+
 ## How it works
 
 ![Architecture](docs/arch.png)
@@ -130,11 +147,12 @@ from anywhere in the buffer.
 | Module | Role |
 | --- | --- |
 | `quill/init.lua` | Session controller. A transition table (`prompting → streaming → reviewing → closed`, with follow-up looping back to `prompting`) owns every state change. An extmark tracks the edited range, so follow-ups stay anchored. |
-| `quill/context.lua` | Builds the request: filetype, surrounding lines, diagnostics in the range, the enclosing Treesitter node, the selection, and the instruction. Follow-ups add the previous proposal as an assistant turn. |
+| `quill/context.lua` | Builds the request: filetype, surrounding lines, diagnostics in the range, the enclosing Treesitter node, the selection, and the instruction. Follow-ups add the previous proposal as an assistant turn. Ask requests send the enclosing function or nearby lines instead of a selection. |
 | `quill/providers/` | `stream(request, opts, callbacks) -> { cancel }`. `http.lua` runs curl through `vim.system` and decodes server-sent events; each wire format is one table entry. `cli.lua` runs the Codex and Claude Code CLIs and parses their JSONL events; each CLI is one table entry. `copilot.lua` exchanges the Copilot token, then streams through `http.lua`. `mock.lua` streams a canned reply on a timer. |
 | `quill/hunks.lua` | Pure diff model. `compute` turns `vim.diff` output into hunks, `merge` builds the final text from the accepted ones, `inline` finds the changed words in a line pair. |
 | `quill/render.lua` | Draws the preview with extmarks only: line and word highlights, virtual lines, signs, key chips, and the status float. |
 | `quill/prompt.lua` | The floating instruction input. |
+| `quill/ask.lua` | The cursor-anchored ask box: prompt, spinner, answer, and reference highlights. |
 
 Highlights are mixed from your colorscheme's `DiagnosticError` and `DiagnosticOk` colors over
 its `Normal` background and recomputed on `ColorScheme`. Every group is named `Quill*` and
