@@ -48,8 +48,8 @@ require("quill").setup({opts})
       mapping = "<leader>k",
       keys = {
         accept = "a", reject = "r", accept_all = "A", reject_all = "R",
-        next = "]h", prev = "[h", followup = "f", edit = "e",
-        cancel = { "q", "<Esc>" },
+        next = "]h", prev = "[h", followup = "f",
+        edit = { "<CR>", "e" }, expand = "<Tab>", cancel = { "q", "<Esc>" },
       },
     }
 <
@@ -57,8 +57,8 @@ require("quill").setup({opts})
     `context_lines`  Lines above and below the selection sent as context.
     `mapping`        In visual mode starts an edit, in normal mode asks a
                      question (|quill-ask|). false disables both.
-    `keys`           Buffer-local keys active during a session. `edit` is
-                     used only in the ask window.
+    `keys`           Buffer-local keys active during a session. `edit` and
+                     `expand` are used only by |quill-ask|.
 
 ==============================================================================
 3. COMMANDS                                                   *quill-commands*
@@ -80,7 +80,7 @@ require("quill").setup({opts})
                                                                 *:QuillCancel*
 :QuillCancel
     Cancel the session in the current buffer and stop its request. Also
-    closes an open answer window.
+    dismisses an answer from |quill-ask|.
 
 ==============================================================================
 4. REVIEW KEYS                                                    *quill-keys*
@@ -103,23 +103,30 @@ closes. The mappings are removed when the session ends.
 5. ASK MODE                                                        *quill-ask*
 
 Press the `mapping` in normal mode, or run |:QuillAsk|, to ask about the code
-under the cursor without selecting it. The answer streams into a floating
-window next to the cursor. The buffer is never modified.
+under the cursor without selecting it. The answer streams in as virtual lines
+under the cursor line, with a bar in the sign column like the edit preview.
+Focus stays in the buffer and the buffer is never modified.
 
 The request carries the file name and filetype, the cursor line, the
 enclosing function found with Treesitter (or `context_lines` above and below
 the cursor when there is none), and the diagnostics in that code. The model
-is asked for a concise answer in markdown.
+is asked for one to three sentences. Markdown is shown plainly: backticks
+become a subtle highlight, and code blocks are indented without fences.
+Answers longer than 8 lines end in "…" until expanded.
 
-The answer window has 'filetype' `markdown`, so markdown plugins and
-Treesitter highlight it. Move and scroll in it as usual. These keys are
-mapped in it:
+While the answer is shown these normal-mode keys are mapped in the buffer:
 
-  f        Ask a follow-up. The request includes the whole thread.
-  e        Close the thread and start an edit session on the enclosing
-           function, with the thread as the instruction. Review the result
-           with the |quill-keys|.
-  q  <Esc> Close the window. While streaming this also stops the request.
+  <CR>  e  Start an edit session on the enclosing function with the question
+           and answer as the instruction. Review it with the |quill-keys|.
+  <Tab>    Show the whole answer.
+  q  <Esc> Dismiss. While streaming this also stops the request.
+
+Moving the cursor to another line, entering Insert mode, changing the
+buffer, or leaving the window dismisses it too. Asking again replaces it.
+The mappings are removed when the answer goes away.
+
+Highlights: `QuillAnswer` (answer text), `QuillAnswerBar` (the bar), and
+`QuillAnswerCode` (inline code and code blocks).
 
 ==============================================================================
 6. PROVIDERS                                                 *quill-providers*

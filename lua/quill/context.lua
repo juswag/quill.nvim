@@ -66,8 +66,8 @@ end
 
 M.ask_system = table.concat({
   "You answer questions about code open in the user's editor.",
-  "Be concise and specific to the code shown. Reply in markdown, with code in fenced blocks.",
-  "Do not restate the question.",
+  "Answer in 1-3 short sentences specific to the code shown. No headings, no lists, no preamble.",
+  "Use backticks for identifiers. Add a short fenced code block only if a fix needs it.",
 }, " ")
 
 -- Node types that are functions in common grammars (function_declaration, method_definition,
@@ -96,8 +96,7 @@ function M.scope(bufnr, row, n)
   return math.max(0, row - n), math.min(vim.api.nvim_buf_line_count(bufnr) - 1, row + n), false
 end
 
---- ask = { bufnr, row, scope = {s, e, is_function}, turns = { {question, answer}... } };
---- the last turn has no answer yet.
+--- ask = { bufnr, row, scope = {s, e, is_function}, question }
 function M.ask_request(ask)
   local bufnr, row = ask.bufnr, ask.row
   local s, e, is_fn = unpack(ask.scope)
@@ -112,22 +111,12 @@ function M.ask_request(ask)
   end
   parts[#parts + 1] = ("%s (lines %d-%d):\n```%s\n%s\n```"):format(is_fn and "Enclosing function" or "Code around the cursor",
     s + 1, e + 1, vim.bo[bufnr].filetype, table.concat(code, "\n"))
-  local messages = {}
-  for i, turn in ipairs(ask.turns) do
-    local content = turn.question
-    if i == 1 then
-      content = table.concat(parts, "\n\n") .. "\n\nQuestion: " .. turn.question
-    end
-    messages[#messages + 1] = { role = "user", content = content }
-    if turn.answer then
-      messages[#messages + 1] = { role = "assistant", content = turn.answer }
-    end
-  end
+  parts[#parts + 1] = "Question: " .. ask.question
   return {
     mode = "ask",
     system = M.ask_system,
-    messages = messages,
-    instruction = ask.turns[#ask.turns].question,
+    messages = { { role = "user", content = table.concat(parts, "\n\n") } },
+    instruction = ask.question,
     selection = code,
   }
 end

@@ -1,6 +1,7 @@
--- Ask mode: a question about the code under the cursor, answered in a float next to it.
--- Never writes the buffer; the edit key hands the thread to an edit session instead.
---   prompting -> streaming -> answered -> (prompting via follow-up) ... -> closed
+-- Ask mode: a question about the code under the cursor, answered inline as virtual lines
+-- under the cursor line. Never writes the buffer. Moving off the line, typing, or <Esc>
+-- dismisses it; the edit key turns it into an edit session on the enclosing function.
+--   prompting -> streaming -> answered -> closed
 local context = require("quill.context")
 local prompt = require("quill.prompt")
 local render = require("quill.render")
@@ -8,13 +9,14 @@ local registry = require("quill.providers")
 
 local M = {}
 
-local WIDTH, MAX_HEIGHT = 72, 20
+M.ns = vim.api.nvim_create_namespace("quill_ask")
+local MAX_LINES = 8
 local current
 
 local transitions = {
-  prompting = { submit = "streaming", dismiss = "answered", cancel = "closed" },
-  streaming = { done = "answered", failed = "answered", cancel = "closed" },
-  answered = { followup = "prompting", edit = "closed", cancel = "closed" },
+  prompting = { submit = "streaming", cancel = "closed" },
+  streaming = { done = "answered", cancel = "closed" },
+  answered = { edit = "closed", cancel = "closed" },
 }
 
 local function transition(a, event)
@@ -27,134 +29,114 @@ local function config()
   return require("quill").config
 end
 
-local function cancel_keys()
-  local c = config().keys.cancel
-  return type(c) == "table" and c or { c }
+local function list(v)
+  return type(v) == "table" and v or { v }
 end
 
-local function title(a)
-  local s, e = a.scope[1], a.scope[2]
-  return { { " ? Ask ", "QuillTitle" }, { ("lines %d–%d "):format(s + 1, e + 1), "QuillMuted" } }
-end
-
-local function footer(a)
-  local k = config().keys
-  if a.phase == "streaming" then
-    return vim.list_extend({
-      { " " .. render.spinner(a.frame) .. " ", "QuillSpinner" },
-      { "Answering ", "QuillStatus" },
-      { a.model .. "  ", "QuillMuted" },
-    }, render.key_chips({ { cancel_keys()[1], "cancel" } }))
-  end
-  return render.key_chips({ { k.followup, "follow-up" }, { k.edit, "edit" }, { cancel_keys()[1], "close" } })
-end
-
-local thread_ns = vim.api.nvim_create_namespace("quill_ask")
-
---- The thread: each question on its own line, then its answer (partial while streaming).
---- Returns the lines, the 0-based rows of the questions, and the row where the latest turn starts.
-local function thread(a)
-  local lines, questions = {}, {}
-  for i, turn in ipairs(a.turns) do
-    if i > 1 then
-      vim.list_extend(lines, { "", "" })
+--- Markdown -> lines of {text, hl} chunks: fences dropped and code indented, `code` spans
+--- kept as subtle chips, emphasis markers and heading hashes stripped.
+local function parse(text)
+  local out, in_code = {}, false
+  for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
+    if line:match("^%s*```") then
+      in_code = not in_code
+    elseif in_code then
+      out[#out + 1] = { { "  " .. line, "QuillAnswerCode" } }
+    else
+      line = line:gsub("^#+%s*", ""):gsub("%*%*", "")
+      local chunks, code = {}, false
+      for part in (line .. "`"):gmatch("(.-)`") do
+        if part ~= "" then
+          chunks[#chunks + 1] = { part, code and "QuillAnswerCode" or "QuillAnswer" }
+        end
+        code = not code
+      end
+      out[#out + 1] = chunks
     end
-    questions[#questions + 1] = #lines
-    lines[#lines + 1] = "› " .. turn.question
-    lines[#lines + 1] = ""
-    vim.list_extend(lines, vim.split(turn.answer or table.concat(a.chunks), "\n", { plain = true }))
   end
-  return lines, questions, questions[#questions] or 0
+  while #out > 0 and #out[#out] == 0 do
+    table.remove(out)
+  end
+  return out
 end
 
---- Below the cursor line when the answer fits there or there is more room below, else above.
-local function placement(a, height)
-  local screen_row = vim.api.nvim_win_call(a.win, function()
-    return vim.fn.winline()
-  end)
-  local below = vim.api.nvim_win_get_height(a.win) - screen_row - 2
-  local above = screen_row - 3
-  local down = below >= height or below >= above
-  local info = vim.fn.getwininfo(a.win)[1]
-  return {
-    relative = "win",
-    win = a.win,
-    bufpos = { a.row, 0 },
-    anchor = down and "NW" or "SW",
-    row = down and 1 or 0,
-    col = 0,
-    width = math.max(20, math.min(WIDTH, info.width - info.textoff - 4)),
-    height = math.max(1, math.min(height, MAX_HEIGHT, down and below or above)),
-    border = "rounded",
-    title = title(a),
-    title_pos = "left",
-    footer = footer(a),
-    footer_pos = "right",
-    zindex = 60,
-  }
+--- Word-wraps one line of chunks to `width` display cells.
+local function wrap(chunks, width)
+  local rows, row, used = {}, {}, 0
+  for _, c in ipairs(chunks) do
+    for word in c[1]:gmatch("%s*%S+") do
+      local w = vim.fn.strdisplaywidth(word)
+      if used > 0 and used + w > width then
+        rows[#rows + 1], row, used = row, {}, 0
+        word = word:gsub("^%s+", "")
+        w = vim.fn.strdisplaywidth(word)
+      end
+      row[#row + 1] = { word, c[2] }
+      used = used + w
+    end
+    local tail = c[1]:match("%s+$")
+    if tail then
+      row[#row + 1] = { tail, c[2] }
+      used = used + #tail
+    end
+  end
+  rows[#rows + 1] = row
+  return rows
 end
 
-local function redraw(a)
-  if not (a.answer_win and vim.api.nvim_win_is_valid(a.answer_win)) then
+local LABELS = { ["<CR>"] = "⏎", ["<Esc>"] = "esc", ["<Tab>"] = "tab" }
+
+local function key_hint(pairs_list)
+  local out = {}
+  for _, p in ipairs(pairs_list) do
+    vim.list_extend(out, { { " " .. (LABELS[p[1]] or p[1]) .. " ", "QuillInlineKey" }, { " " .. p[2] .. " ", "QuillAnswer" }, { " ", "QuillAnswer" } })
+  end
+  return out
+end
+
+local function draw(a)
+  if not vim.api.nvim_buf_is_valid(a.bufnr) then
     return
   end
-  local buf, win = a.answer_buf, a.answer_win
-  local lines, questions, latest = thread(a)
-  vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  vim.api.nvim_buf_clear_namespace(buf, thread_ns, 0, -1)
-  for _, row in ipairs(questions) do
-    vim.api.nvim_buf_set_extmark(buf, thread_ns, row, 0, { end_col = #"›", hl_group = "QuillPromptIcon", priority = 300 })
-    vim.api.nvim_buf_set_extmark(buf, thread_ns, row, #"›", { end_col = #lines[row + 1], hl_group = "QuillStatus", priority = 300 })
+  local info = vim.fn.getwininfo(a.win)[1]
+  local textoff = info and info.textoff or 0
+  local indent = string.rep(" ", vim.fn.indent(a.row + 1))
+  local prefix = { { "┃", "QuillAnswerBar" }, { string.rep(" ", math.max(0, textoff - 1)), "QuillGutter" }, { indent, "QuillAnswer" } }
+  local width = math.max(20, (info and info.width or 80) - textoff - #indent - 1)
+
+  local rows = {}
+  for _, chunks in ipairs(parse(a.answer or table.concat(a.chunks))) do
+    vim.list_extend(rows, wrap(chunks, width))
   end
-  vim.api.nvim_win_set_config(win, placement(a, vim.api.nvim_win_text_height(win, {}).all))
-  -- Follow the tail, but never scroll the latest question out of view; rest on that question.
-  vim.api.nvim_win_call(win, function()
-    if a.phase == "streaming" then
-      vim.cmd("normal! Gzb")
-      if vim.fn.line("w0") > latest + 1 then
-        vim.fn.winrestview({ topline = latest + 1 })
-      end
-    end
-    vim.api.nvim_win_set_cursor(win, { latest + 1, 0 })
-  end)
-end
-
-local close
-
-local function open_window(a)
-  if a.answer_win and vim.api.nvim_win_is_valid(a.answer_win) then
-    return vim.api.nvim_set_current_win(a.answer_win)
-  end
-  a.answer_buf = vim.api.nvim_create_buf(false, true)
-  local buf = a.answer_buf
-  vim.bo[buf].bufhidden = "wipe"
-  vim.bo[buf].filetype = "markdown"
-  pcall(vim.treesitter.start, buf, "markdown")
-  local cfg = placement(a, 1)
-  cfg.style = "minimal"
-  a.answer_win = vim.api.nvim_open_win(buf, true, cfg)
-  local wo = vim.wo[a.answer_win]
-  wo.winhighlight = "NormalFloat:QuillFloat,FloatBorder:QuillBorder,FloatTitle:QuillTitle"
-  wo.wrap, wo.linebreak, wo.conceallevel, wo.concealcursor = true, true, 2, "nc"
-
   local k = config().keys
-  local actions = {
-    [k.followup] = function() M.followup() end,
-    [k.edit] = function() M.edit() end,
-  }
-  for _, lhs in ipairs(cancel_keys()) do
-    actions[lhs] = function() close(a, "cancel") end
+  local hidden = 0
+  if not a.expanded and #rows > MAX_LINES then
+    hidden = #rows - MAX_LINES
+    rows = vim.list_slice(rows, 1, MAX_LINES)
+    table.insert(rows[#rows], { " …", "QuillAnswer" })
   end
-  for lhs, fn in pairs(actions) do
-    vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true, desc = "quill ask" })
+  if a.phase == "streaming" then
+    if #rows == 0 then
+      rows[1] = {}
+    end
+    table.insert(rows[#rows], { (#rows[#rows] > 0 and " " or "") .. render.spinner(a.frame), "QuillPromptIcon" })
+  else
+    local cancel = list(k.cancel)
+    local keys = { { list(k.edit)[1], "edit" }, { vim.tbl_contains(cancel, "<Esc>") and "<Esc>" or cancel[1], "dismiss" } }
+    if hidden > 0 then
+      table.insert(keys, 2, { k.expand, ("%d more"):format(hidden) })
+    end
+    rows[#rows + 1] = key_hint(keys)
   end
-  vim.api.nvim_create_autocmd("WinClosed", { pattern = tostring(a.answer_win), once = true, callback = function()
-    vim.schedule(function()
-      close(a, "cancel")
-    end)
-  end })
+  local virt = {}
+  for i, r in ipairs(rows) do
+    virt[i] = vim.list_extend(vim.deepcopy(prefix), r)
+  end
+  a.mark = vim.api.nvim_buf_set_extmark(a.bufnr, M.ns, a.row, 0, {
+    id = a.mark,
+    virt_lines = virt,
+    virt_lines_leftcol = true,
+  })
 end
 
 local function stop_spinner(a)
@@ -165,7 +147,7 @@ local function stop_spinner(a)
   a.spinner = nil
 end
 
-function close(a, event)
+local function close(a, event)
   if a.phase == "closed" then
     return
   end
@@ -175,15 +157,61 @@ function close(a, event)
   end
   transition(a, event)
   stop_spinner(a)
-  if a.answer_win and vim.api.nvim_win_is_valid(a.answer_win) then
-    vim.api.nvim_win_close(a.answer_win, true)
+  for _, lhs in ipairs(a.mapped) do
+    pcall(vim.keymap.del, "n", lhs, { buffer = a.bufnr })
   end
-  if vim.api.nvim_win_is_valid(a.win) then
-    vim.api.nvim_set_current_win(a.win)
+  pcall(vim.api.nvim_del_augroup_by_id, a.augroup)
+  if vim.api.nvim_buf_is_valid(a.bufnr) then
+    vim.api.nvim_buf_clear_namespace(a.bufnr, M.ns, 0, -1)
   end
   if current == a then
     current = nil
   end
+end
+
+--- Turns the answer into an edit session on the enclosing function.
+local function to_edit(a)
+  if a.phase ~= "answered" then
+    return
+  end
+  local instruction = ("Question: %s\nAnswer: %s\n\nMake the change the answer suggests."):format(a.question, a.answer)
+  local s, e = a.scope[1], a.scope[2]
+  close(a, "edit")
+  require("quill").start(s + 1, e + 1, { instruction = instruction })
+end
+
+--- Buffer-local keys and dismiss triggers, live only while the answer is shown.
+local function attach(a)
+  local k = config().keys
+  local actions = {
+    [k.expand] = function()
+      if a.phase == "answered" then
+        a.expanded = true
+        draw(a)
+      end
+    end,
+  }
+  for _, lhs in ipairs(list(k.edit)) do
+    actions[lhs] = function() to_edit(a) end
+  end
+  for _, lhs in ipairs(list(k.cancel)) do
+    actions[lhs] = function() close(a, "cancel") end
+  end
+  for lhs, fn in pairs(actions) do
+    vim.keymap.set("n", lhs, fn, { buffer = a.bufnr, nowait = true, desc = "quill ask" })
+    a.mapped[#a.mapped + 1] = lhs
+  end
+  a.augroup = vim.api.nvim_create_augroup("quill_ask_" .. a.bufnr, { clear = true })
+  local function dismiss()
+    close(a, "cancel")
+  end
+  vim.api.nvim_create_autocmd("CursorMoved", { group = a.augroup, buffer = a.bufnr, callback = function()
+    if vim.api.nvim_win_get_cursor(0)[1] - 1 ~= a.row then
+      dismiss()
+    end
+  end })
+  vim.api.nvim_create_autocmd({ "InsertEnter", "TextChanged", "BufLeave", "WinLeave" },
+    { group = a.augroup, buffer = a.bufnr, callback = dismiss })
 end
 
 local function run(a)
@@ -192,24 +220,22 @@ local function run(a)
   local stream = registry[opts.format or name]
   assert(stream, "quill: unknown provider " .. name)
   local req = context.ask_request(a)
-  a.chunks, a.frame, a.model = {}, 0, opts.model or name
-  open_window(a)
-  redraw(a)
-  stop_spinner(a)
+  a.chunks, a.frame = {}, 0
+  attach(a)
+  draw(a)
   a.spinner = vim.uv.new_timer()
   a.spinner:start(80, 80, vim.schedule_wrap(function()
     if a.phase ~= "streaming" then
       return stop_spinner(a)
     end
     a.frame = a.frame + 1
-    redraw(a)
+    draw(a)
   end))
-  local turn = a.turns[#a.turns]
   a.job = stream(req, opts, {
     on_chunk = function(text)
       if a.phase == "streaming" then
         a.chunks[#a.chunks + 1] = text
-        redraw(a)
+        draw(a)
       end
     end,
     on_done = function()
@@ -217,10 +243,10 @@ local function run(a)
         return
       end
       a.job = nil
-      turn.answer = vim.trim(table.concat(a.chunks))
+      a.answer = vim.trim(table.concat(a.chunks))
       transition(a, "done")
       stop_spinner(a)
-      redraw(a)
+      draw(a)
     end,
     on_error = function(err)
       if a.phase ~= "streaming" then
@@ -228,47 +254,15 @@ local function run(a)
       end
       a.job = nil
       vim.notify("quill: " .. err, vim.log.levels.ERROR)
-      table.remove(a.turns)
-      if #a.turns == 0 then
-        return close(a, "cancel")
-      end
-      transition(a, "failed")
-      stop_spinner(a)
-      redraw(a)
+      close(a, "cancel")
     end,
   })
 end
 
 local function submit(a, question)
-  a.turns[#a.turns + 1] = { question = question }
+  a.question = question
   transition(a, "submit")
   run(a)
-end
-
-local function open_prompt(a)
-  local first = #a.turns == 0
-  prompt.open({
-    win = a.win,
-    row = a.row,
-    end_row = a.row,
-    title = first and title(a) or { { " ↻ Follow-up ", "QuillTitle" }, { ("turn %d "):format(#a.turns + 1), "QuillMuted" } },
-    placeholder = first and "Ask about this code…" or "Ask a follow-up…",
-    on_submit = function(question)
-      if a.phase == "prompting" then
-        submit(a, question)
-      end
-    end,
-    on_cancel = function()
-      if a.phase ~= "prompting" then
-        return
-      end
-      if #a.turns == 0 then
-        return close(a, "cancel")
-      end
-      transition(a, "dismiss")
-      open_window(a)
-    end,
-  })
 end
 
 --- Asks about the code under the cursor. With `question` it skips the prompt window.
@@ -284,46 +278,32 @@ function M.open(question)
     win = win,
     row = row,
     scope = { context.scope(bufnr, row, config().context_lines) },
-    turns = {},
     chunks = {},
+    mapped = {},
     phase = "prompting",
   }
   current = a
   if question and question ~= "" then
     submit(a, question)
-  else
-    open_prompt(a)
-  end
-  return a
-end
-
---- Asks a follow-up in the same thread (prompts unless `question` is given).
-function M.followup(question)
-  local a = current
-  if not a or a.phase ~= "answered" then
-    return
-  end
-  transition(a, "followup")
-  if question then
-    submit(a, question)
-  else
-    open_prompt(a)
-  end
-end
-
---- Closes the thread and starts an edit session on the enclosing function that applies it.
-function M.edit()
-  local a = current
-  if not a or a.phase ~= "answered" then
-    return
-  end
-  local parts = { "Make the change this discussion about the code arrived at." }
-  for _, turn in ipairs(a.turns) do
-    parts[#parts + 1] = ("Question: %s\nAnswer: %s"):format(turn.question, turn.answer)
+    return a
   end
   local s, e = a.scope[1], a.scope[2]
-  close(a, "edit")
-  require("quill").start(s + 1, e + 1, { instruction = table.concat(parts, "\n\n") })
+  prompt.open({
+    win = win,
+    row = row,
+    end_row = row,
+    title = { { " ? Ask ", "QuillTitle" }, { ("lines %d–%d "):format(s + 1, e + 1), "QuillMuted" } },
+    placeholder = "Ask about this code…",
+    on_submit = function(q)
+      if a.phase == "prompting" then
+        submit(a, q)
+      end
+    end,
+    on_cancel = function()
+      close(a, "cancel")
+    end,
+  })
+  return a
 end
 
 function M.cancel()

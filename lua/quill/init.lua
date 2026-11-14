@@ -28,7 +28,8 @@ M.config = {
     next = "]h",
     prev = "[h",
     followup = "f",
-    edit = "e",
+    edit = { "<CR>", "e" },
+    expand = "<Tab>",
     cancel = { "q", "<Esc>" },
   },
 }

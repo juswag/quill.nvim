@@ -40,7 +40,8 @@ require("quill").setup({
   mapping = "<leader>k",      -- visual mode edits, normal mode asks; false to disable
   keys = {
     accept = "a", reject = "r", accept_all = "A", reject_all = "R",
-    next = "]h", prev = "[h", followup = "f", edit = "e", cancel = { "q", "<Esc>" },
+    next = "]h", prev = "[h", followup = "f", edit = { "<CR>", "e" }, expand = "<Tab>",
+    cancel = { "q", "<Esc>" },
   },
 })
 ```
@@ -126,16 +127,18 @@ from anywhere in the buffer.
 ### Ask about code
 
 Press `<leader>k` in normal mode with nothing selected and type a question, such as
-`why could this return nil?`. The answer streams into a float next to the cursor and the
-buffer is never changed. quill sends the function around the cursor (or `context_lines`
-around it when there is none), the cursor line, and its diagnostics. `:QuillAsk why nil?`
-skips the prompt.
+`why could this return nil?`. The answer streams in as virtual lines under the cursor line,
+like the edit preview, and the buffer is never changed. quill sends the function around the
+cursor (or `context_lines` around it when there is none), the cursor line, and its
+diagnostics. `:QuillAsk why nil?` skips the prompt.
 
 | Key | Action |
 | --- | --- |
-| `f` | Ask a follow-up in the same thread |
-| `e` | Turn the thread into an edit of the function, reviewed hunk by hunk as above |
-| `q` / `<Esc>` | Close the answer |
+| `<CR>` / `e` | Turn the answer into an edit of the function, reviewed hunk by hunk as above |
+| `<Tab>` | Show the rest of a long answer |
+| `q` / `<Esc>` | Dismiss |
+
+Moving to another line, typing, or leaving the window also dismisses it.
 
 ## How it works
 
