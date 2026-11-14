@@ -335,7 +335,7 @@ local function set_box(a, lines, marks, footer)
   for _, m in ipairs(marks or {}) do
     vim.api.nvim_buf_set_extmark(a.box_buf, box_ns, m.row, m.col, {
       end_col = m.end_col,
-      hl_group = "QuillAskRef",
+      hl_group = m.hl or "QuillAskRef",
     })
   end
   if a.phase ~= "prompting" then
@@ -368,7 +368,8 @@ local function paint(a)
     return
   end
   if a.phase == "waiting" then
-    set_box(a, { " " .. render.spinner(a.frame) }, nil, "")
+    local spin = render.spinner(a.frame)
+    set_box(a, { " " .. spin }, { { row = 0, col = 1, end_col = 1 + #spin, hl = "QuillAskKey" } }, "")
     return
   end
   if a.phase == "answered" then
