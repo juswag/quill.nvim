@@ -30,8 +30,17 @@ local function first_key(value)
 end
 
 local function key_label(value)
-  local lhs = first_key(value) or ""
-  return (lhs:gsub("[<>]", ""):lower())
+  local fallback = ""
+  for _, lhs in ipairs(keys_of(value)) do
+    local label = lhs:gsub("[<>]", ""):lower()
+    if #label == 1 then
+      return label
+    end
+    if fallback == "" then
+      fallback = label
+    end
+  end
+  return fallback
 end
 
 -- Same opt-out as the edit prompt; the filetype is documented in :h quill-commands.
@@ -91,8 +100,21 @@ local function wrap_line(line, width)
       push(word)
     end
   end
-  for word in line:gmatch("%S+") do
-    push(word)
+  -- Keep `backtick spans` whole so wrapping cannot split them and leak ticks.
+  local i = 1
+  while i <= #line do
+    local a, b = line:find("`[^`]+`", i)
+    if not a then
+      for word in line:sub(i):gmatch("%S+") do
+        push(word)
+      end
+      break
+    end
+    for word in line:sub(i, a - 1):gmatch("%S+") do
+      push(word)
+    end
+    push(line:sub(a, b))
+    i = b + 1
   end
   flush()
   return #out > 0 and out or { "" }
@@ -362,6 +384,7 @@ local function paint(a)
     set_box(a, lines, refs, footer_chunks(pairs_list))
     highlight_buffer(a)
   end
+  pcall(vim.cmd.redrawstatus)
 end
 
 local function focus_source(a)

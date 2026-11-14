@@ -340,4 +340,20 @@ H.test("the prompt buffer opts out of completion", function()
   package.loaded.cmp = nil
 end)
 
+
+H.test("wrapping does not split backtick spans or leak ticks", function()
+  use_mock({
+    answer = "The comparison `n < 1` is unsafe when tonumber fails and n is nil, which is a problem.\n",
+  })
+  vim.o.columns = 40
+  H.buffer(CODE)
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("why?")
+  wait_ask("answered")
+  local body = table.concat(box_lines(), "\n")
+  H.ok(not body:find("`", 1, true), "no leaked backticks: " .. body)
+  H.ok(body:find("n < 1", 1, true), "span stays together: " .. body)
+  vim.o.columns = 80
+end)
+
 H.finish()
