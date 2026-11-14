@@ -51,6 +51,7 @@ require("quill").setup({opts})
         accept = "a", reject = "r", accept_all = "A", reject_all = "R",
         next = "]h", prev = "[h", followup = "f",
         edit = { "<CR>", "e" }, expand = "<Tab>",
+        ask_prev = "[", ask_next = "]",
         cancel = { "q", "<Esc>" },
       },
     }
@@ -116,11 +117,18 @@ and on the matching ranges in the buffer while the box is open.
 The box is capped at 8 lines. These normal-mode keys are mapped in the
 source buffer while it is open:
 
+  f        Add one input line in the box. The new answer replaces the
+           old one; there is no thread. Prior Q&A at this spot (the
+           enclosing function or nearby lines) is kept for the Neovim
+           session and sent with the follow-up request.
+  [  ]     Previous or next answer at this spot. A muted n/m in the
+           footer appears when there is more than one.
   e  <CR>  Close the box and start an edit of the enclosing function
            (or the nearby lines). The instruction is the question plus
            the answer, reviewed as hunks.
   <Tab>    Expand a truncated answer.
-  q  <Esc> Close the box.
+  q  <Esc> Close the box. During a follow-up input, this returns to
+           the current answer.
 
 The box also closes when the cursor leaves that function (or those nearby
 lines), or when leaving the window or entering insert mode in the file.
@@ -220,5 +228,6 @@ can override them. Without 'termguicolors' the diff groups link to
   QuillAskRef  QuillAskBuf
                       Referenced code in the ask box and the matching
                       ranges in the source buffer.
+  QuillAskMuted       The n/m history indicator in the ask footer.
 
  vim:tw=78:ts=8:ft=help:norl:

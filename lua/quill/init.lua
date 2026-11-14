@@ -30,6 +30,8 @@ M.config = {
     followup = "f",
     edit = { "<CR>", "e" },
     expand = "<Tab>",
+    ask_prev = "[",
+    ask_next = "]",
     cancel = { "q", "<Esc>" },
   },
 }

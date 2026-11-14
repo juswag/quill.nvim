@@ -209,6 +209,7 @@ function M.define_highlights()
     QuillAskLabel = { fg = muted, bg = float_bg },
     QuillAskRef = { fg = fg, bg = blend(0xE5482D, float_bg, 0.16) },
     QuillAskBuf = { bg = blend(0xE5482D, bg, 0.18) },
+    QuillAskMuted = { fg = muted, bg = float_bg },
   }
   if not vim.o.termguicolors then
     for name, target in pairs({ QuillDelete = "DiffDelete", QuillDeleteText = "DiffText", QuillDeleteDim = "DiffDelete",

@@ -97,7 +97,8 @@ function M.scope(bufnr, row, n)
   return math.max(0, row - n), math.min(vim.api.nvim_buf_line_count(bufnr) - 1, row + n), false
 end
 
---- ask = { bufnr, row, scope = {s, e, is_function}, question }
+--- ask = { bufnr, row, scope = {s, e, is_function}, question, history? }
+--- history is prior {question, answer} turns, not including the current question.
 function M.ask_request(ask)
   local bufnr, row = ask.bufnr, ask.row
   local s, e, is_fn = unpack(ask.scope)
@@ -113,11 +114,25 @@ function M.ask_request(ask)
   parts[#parts + 1] = ("%s (lines %d-%d):\n```%s\n%s\n```"):format(
     is_fn and "Enclosing function" or "Code around the cursor",
     s + 1, e + 1, vim.bo[bufnr].filetype, table.concat(code, "\n"))
-  parts[#parts + 1] = "Question: " .. ask.question
+
+  local function user_content(question, with_context)
+    if not with_context then
+      return "Question: " .. question
+    end
+    return table.concat(parts, "\n\n") .. "\n\nQuestion: " .. question
+  end
+
+  local messages = {}
+  local history = ask.history or {}
+  for i, turn in ipairs(history) do
+    messages[#messages + 1] = { role = "user", content = user_content(turn.question, i == 1) }
+    messages[#messages + 1] = { role = "assistant", content = turn.answer }
+  end
+  messages[#messages + 1] = { role = "user", content = user_content(ask.question, #history == 0) }
   return {
     mode = "ask",
     system = M.ask_system,
-    messages = { { role = "user", content = table.concat(parts, "\n\n") } },
+    messages = messages,
     instruction = ask.question,
     selection = code,
   }

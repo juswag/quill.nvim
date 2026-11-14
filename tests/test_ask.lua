@@ -31,6 +31,7 @@ local FIXED = {
 local seen = {}
 local function use_mock(extra)
   seen = {}
+  ask._clear_memory()
   ai.config.provider = "mock"
   ai.config.providers.mock = vim.tbl_extend("force", {
     interval_ms = 2,
@@ -53,6 +54,25 @@ end
 
 local function wait_ask(want)
   H.ok(vim.wait(3000, function() return phase() == want end, 5), "timed out waiting for ask phase " .. want)
+end
+
+-- Types a follow-up by putting the question on the new input line and submitting
+-- with <CR>. startinsert after `f` is deferred (the mapping is on the source
+-- buffer), so headless feedkeys cannot type into insert reliably.
+local function type_followup(question)
+  H.keys("f")
+  H.eq("followup", phase(), "follow-up input")
+  local a = ask.get()
+  H.ok(a and a.box_win and vim.api.nvim_win_is_valid(a.box_win), "box is open")
+  if vim.api.nvim_get_current_win() ~= a.box_win then
+    vim.api.nvim_set_current_win(a.box_win)
+  end
+  vim.bo[a.box_buf].modifiable = true
+  local lines = vim.api.nvim_buf_get_lines(a.box_buf, 0, -1, false)
+  lines[#lines] = question
+  vim.api.nvim_buf_set_lines(a.box_buf, 0, -1, false, lines)
+  a.followup_text = question
+  H.keys("<CR>")
 end
 
 local function box_lines()
@@ -80,6 +100,24 @@ end
 
 local function buf_hl(buf)
   return vim.api.nvim_buf_get_extmarks(buf, ask.ns, 0, -1, { details = true })
+end
+
+
+local function footer_text()
+  local a = ask.get()
+  if not (a and a.box_win and vim.api.nvim_win_is_valid(a.box_win)) then
+    return ""
+  end
+  local footer = vim.api.nvim_win_get_config(a.box_win).footer
+  local out = ""
+  if type(footer) == "table" then
+    for _, c in ipairs(footer) do
+      out = out .. (type(c) == "table" and c[1] or tostring(c))
+    end
+  elseif type(footer) == "string" then
+    out = footer
+  end
+  return out
 end
 
 H.test("normal <leader>k opens a box at the cursor, then morphs the answer in place", function()
@@ -307,6 +345,7 @@ H.test(":QuillAsk with a question skips the prompt; visual <leader>k still edits
 end)
 
 H.test("empty Enter keeps the prompt open; mock has a default answer", function()
+  ask._clear_memory()
   ai.config.provider, ai.config.providers.mock = "mock", { interval_ms = 2, chunk_size = 50 }
   H.buffer(CODE)
   vim.api.nvim_win_set_cursor(0, { 6, 0 })
@@ -323,6 +362,7 @@ H.test("empty Enter keeps the prompt open; mock has a default answer", function(
 end)
 
 H.test("the prompt buffer opts out of completion", function()
+  ask._clear_memory()
   local configured
   package.loaded.cmp = { setup = { buffer = function(cfg)
     configured = cfg
@@ -341,6 +381,7 @@ H.test("the prompt buffer opts out of completion", function()
 end)
 
 
+
 H.test("wrapping does not split backtick spans or leak ticks", function()
   use_mock({
     answer = "The comparison `n < 1` is unsafe when tonumber fails and n is nil, which is a problem.\n",
@@ -354,6 +395,118 @@ H.test("wrapping does not split backtick spans or leak ticks", function()
   H.ok(not body:find("`", 1, true), "no leaked backticks: " .. body)
   H.ok(body:find("n < 1", 1, true), "span stays together: " .. body)
   vim.o.columns = 80
+end)
+
+H.test("f adds a follow-up line and the new answer replaces the old one", function()
+  local answers = {
+    "`tonumber` returns nil for `\"abc\"`.\n",
+    "An empty `value` also makes `tonumber` return nil.\n",
+  }
+  use_mock({
+    answer = function(req)
+      seen[#seen + 1] = req
+      return answers[#seen] or answers[#answers]
+    end,
+  })
+  H.buffer(CODE)
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("why could this return nil?")
+  wait_ask("answered")
+  local first = table.concat(box_lines(), "\n")
+  H.ok(first:find("tonumber returns nil", 1, true), first)
+  H.ok(not footer_text():find("%d/%d"), "no counter for a single answer: " .. footer_text())
+  H.ok(footer_text():find("follow-up", 1, true), "follow-up in footer")
+  H.keys("f")
+  H.eq("followup", phase(), "follow-up input")
+  H.ok(#box_lines() > 1, "input line added under the answer")
+  H.ok(table.concat(box_lines(), "\n"):find("tonumber returns nil", 1, true), "answer still visible")
+  H.keys("<Esc>")
+  H.eq("answered", phase(), "cancel the probe input")
+  type_followup("what if value is empty?")
+  wait_ask("answered")
+  local second = table.concat(box_lines(), "\n")
+  H.ok(second:find("empty", 1, true), "new answer shown: " .. second)
+  H.ok(not second:find('for "abc"', 1, true), "old answer replaced, no thread")
+  H.eq(2, #seen, "two requests")
+  H.eq("what if value is empty?", seen[2].instruction, "follow-up question")
+  H.eq(3, #seen[2].messages, "context turn, first answer, follow-up")
+  H.eq("assistant", seen[2].messages[2].role, "prior answer included")
+  H.ok(seen[2].messages[2].content:find("returns nil", 1, true), "prior answer text: " .. seen[2].messages[2].content)
+  H.eq("Question: what if value is empty?", seen[2].messages[3].content, "follow-up is a short turn")
+  H.ok(footer_text():find("2/2", 1, true), "counter: " .. footer_text())
+  H.eq(2, ask.get().index, "on the latest answer")
+end)
+
+H.test("[ and ] step earlier answers at the same spot", function()
+  local answers = { "First answer about `tonumber`.\n", "Second answer about empty `value`.\n" }
+  use_mock({
+    answer = function(req)
+      seen[#seen + 1] = req
+      return answers[#seen] or answers[#answers]
+    end,
+  })
+  H.buffer(CODE)
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("why nil?")
+  wait_ask("answered")
+  type_followup("empty?")
+  wait_ask("answered")
+  H.ok(table.concat(box_lines(), " "):find("Second answer", 1, true), "on the latest")
+  H.keys("[")
+  H.ok(table.concat(box_lines(), " "):find("First answer", 1, true), "stepped back")
+  H.ok(footer_text():find("1/2", 1, true), footer_text())
+  H.keys("[")
+  H.ok(table.concat(box_lines(), " "):find("First answer", 1, true), "already at the first")
+  H.keys("]")
+  H.ok(table.concat(box_lines(), " "):find("Second answer", 1, true), "stepped forward")
+  H.ok(footer_text():find("2/2", 1, true), footer_text())
+end)
+
+H.test("Esc during follow-up input returns to the current answer", function()
+  use_mock()
+  H.buffer(CODE)
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("why?")
+  wait_ask("answered")
+  H.keys("f")
+  H.eq("followup", phase(), "follow-up")
+  H.keys("<Esc>")
+  H.eq("answered", phase(), "back to the answer")
+  H.ok(table.concat(box_lines(), " "):find("tonumber", 1, true), "answer still there")
+  H.eq(1, #floats(), "box stays open")
+end)
+
+H.test("memory is per-spot and lasts for the Neovim session", function()
+  local n = 0
+  use_mock({
+    answer = function(req)
+      seen[#seen + 1] = req
+      n = n + 1
+      return "Answer " .. n .. " to " .. req.instruction .. ".\n"
+    end,
+  })
+  H.buffer(CODE)
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("first?")
+  wait_ask("answered")
+  H.keys("q")
+  H.eq("closed", phase(), "closed")
+  vim.api.nvim_win_set_cursor(0, { 6, 0 })
+  ai.ask("second?")
+  wait_ask("answered")
+  H.eq(1, #seen[2].messages, "a fresh question does not send prior Q&A")
+  H.ok(footer_text():find("2/2", 1, true), "spot memory survived the close: " .. footer_text())
+  H.keys("[")
+  H.ok(table.concat(box_lines(), " "):find("Answer 1 to first?", 1, true), "earlier answer from this spot")
+  H.keys("q")
+
+  vim.api.nvim_win_set_cursor(0, { 11, 0 })
+  ai.ask("what is this return?")
+  wait_ask("answered")
+  H.ok(not footer_text():find("%d/%d"), "a different spot has its own memory: " .. footer_text())
+  H.eq(1, #seen[3].messages, "other spot does not get parse_port history")
+  H.ok(table.concat(box_lines(), " "):find("Answer 3", 1, true), "new answer")
+  H.ok(not table.concat(box_lines(), " "):find("Answer 1", 1, true), "no other spot's answer")
 end)
 
 H.finish()
