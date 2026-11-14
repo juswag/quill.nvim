@@ -10,8 +10,9 @@ CONTENTS                                                      *quill-contents*
   2. Setup ................................... |quill-setup|
   3. Commands ................................ |quill-commands|
   4. Review keys ............................. |quill-keys|
-  5. Providers ............................... |quill-providers|
-  6. Highlights .............................. |quill-highlights|
+  5. Ask ..................................... |quill-ask|
+  6. Providers ............................... |quill-providers|
+  7. Highlights .............................. |quill-highlights|
 
 ==============================================================================
 1. INTRODUCTION                                           *quill-introduction*
@@ -28,7 +29,8 @@ Requires Neovim 0.10 or newer and `curl` on $PATH. The `codex` and
 
                                                               *quill.setup()*
 require("quill").setup({opts})
-    Merges {opts} into the defaults and creates the visual-mode mapping.
+    Merges {opts} into the defaults and creates the mappings: visual mode
+    starts an edit, normal mode opens the ask box.
     Defaults: >lua
     {
       provider = "openai",
@@ -47,14 +49,16 @@ require("quill").setup({opts})
       mapping = "<leader>k",
       keys = {
         accept = "a", reject = "r", accept_all = "A", reject_all = "R",
-        next = "]h", prev = "[h", followup = "f", cancel = { "q", "<Esc>" },
+        next = "]h", prev = "[h", followup = "f",
+        edit = { "<CR>", "e" }, expand = "<Tab>",
+        cancel = { "q", "<Esc>" },
       },
     }
 <
     `provider`       Name of the entry in `providers` to use.
     `context_lines`  Lines above and below the selection sent as context.
-    `mapping`        Visual-mode mapping that starts an edit, or false.
-    `keys`           Buffer-local keys active during a session.
+    `mapping`        Visual-mode edit and normal-mode ask mapping, or false.
+    `keys`           Buffer-local keys active during an edit or ask session.
 
 ==============================================================================
 3. COMMANDS                                                   *quill-commands*
@@ -68,9 +72,15 @@ require("quill").setup({opts})
     completion, so <CR> always submits. Match the filetype to exclude it from
     another completion plugin.
 
+                                                                   *:QuillAsk*
+:QuillAsk [question]
+    Ask about the code under the cursor. Without [question] a small box
+    opens at the cursor to type in. See |quill-ask|.
+
                                                                 *:QuillCancel*
 :QuillCancel
-    Cancel the session in the current buffer and stop its request.
+    Cancel the edit or ask session in the current buffer and stop its
+    request.
 
 ==============================================================================
 4. REVIEW KEYS                                                    *quill-keys*
@@ -90,7 +100,35 @@ When no pending hunks remain, the accepted hunks are written and the session
 closes. The mappings are removed when the session ends.
 
 ==============================================================================
-5. PROVIDERS                                                 *quill-providers*
+5. ASK                                                             *quill-ask*
+
+In normal mode, |<leader>k| (or |:QuillAsk|) opens a small box at the cursor.
+Type a question and press <CR>. The box shows a spinner until the answer is
+ready, then morphs in place into the answer. Nothing is streamed into the
+box, and the source buffer is not modified.
+
+The request includes the enclosing function (or nearby lines when there is
+no function), the file name, and the filetype, from the current file only.
+It goes through the same provider abstraction as an edit. Identifiers wrapped
+in backticks and "line N" mentions in the answer are highlighted in the box
+and on the matching ranges in the buffer while the box is open.
+
+The box is capped at 8 lines. These normal-mode keys are mapped in the
+source buffer while it is open:
+
+  e  <CR>  Close the box and start an edit of the enclosing function
+           (or the nearby lines). The instruction is the question plus
+           the answer, reviewed as hunks.
+  <Tab>    Expand a truncated answer.
+  q  <Esc> Close the box.
+
+The box also closes when the cursor leaves that function (or those nearby
+lines), or when leaving the window or entering insert mode in the file.
+Asking again replaces the current box. `:QuillAsk why could this return
+nil?` skips the prompt.
+
+==============================================================================
+6. PROVIDERS                                                 *quill-providers*
 
 `openai`       Chat Completions with `stream = true`. Works with any
                OpenAI-compatible server through `base_url`.
@@ -98,8 +136,9 @@ closes. The mappings are removed when the session ends.
 `codex`        ChatGPT plan through the Codex CLI. No API key.
 `claude_code`  Claude plan through Claude Code. No API key.
 `copilot`      GitHub Copilot plan through an existing Copilot sign-in.
-`mock`         Offline. Streams `response` (a string or a function of the
-               request) in chunks. Used by the tests and the demo.
+`mock`         Offline. Streams `response` (edits) or `answer` (ask), each
+               a string or a function of the request, in chunks. Used by
+               the tests and the demo.
 
 Each entry accepts `base_url`, `model`, `api_key_env`, and `api_key`. An
 entry with `format = "openai"` or `format = "anthropic"` reuses that wire
@@ -150,7 +189,7 @@ The Copilot token exchange is GitHub's internal, undocumented API. It is not
 a public interface and may change or stop working without notice.
 
 ==============================================================================
-6. HIGHLIGHTS                                               *quill-highlights*
+7. HIGHLIGHTS                                               *quill-highlights*
 
 Diff colors are mixed from the colorscheme's |hl-DiagnosticError| and
 |hl-DiagnosticOk| colors over |hl-Normal| and recomputed on |ColorScheme|.
@@ -175,5 +214,11 @@ can override them. Without 'termguicolors' the diff groups link to
                       Status float text.
   QuillFloat  QuillBorder  QuillTitle  QuillPlaceholder  QuillPromptIcon
   QuillGutter         Floats, the prompt, and the virtual-line gutter.
+  QuillAskKey  QuillAskLabel
+                      Footer keys in the ask box. The key color is the
+                      quill accent (#E5482D).
+  QuillAskRef  QuillAskBuf
+                      Referenced code in the ask box and the matching
+                      ranges in the source buffer.
 
  vim:tw=78:ts=8:ft=help:norl:

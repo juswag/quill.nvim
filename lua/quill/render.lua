@@ -204,6 +204,11 @@ function M.define_highlights()
     QuillFloat = { link = "NormalFloat" },
     QuillBorder = { link = "FloatBorder" },
     QuillTitle = { fg = accent, bg = color("FloatBorder", "bg") or float_bg, bold = true },
+    -- Ask box: brand accent used only on keys and referenced code, so the rest stays neutral.
+    QuillAskKey = { fg = 0xE5482D, bg = float_bg, bold = true },
+    QuillAskLabel = { fg = muted, bg = float_bg },
+    QuillAskRef = { fg = fg, bg = blend(0xE5482D, float_bg, 0.16) },
+    QuillAskBuf = { bg = blend(0xE5482D, bg, 0.18) },
   }
   if not vim.o.termguicolors then
     for name, target in pairs({ QuillDelete = "DiffDelete", QuillDeleteText = "DiffText", QuillDeleteDim = "DiffDelete",
@@ -223,6 +228,12 @@ vim.api.nvim_create_autocmd("ColorScheme", {
     M.define_highlights()
   end,
 })
+
+local SPINNER = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+function M.spinner(frame)
+  return SPINNER[frame % #SPINNER + 1]
+end
 
 --- Writes `chunks` ({text, hl} pairs) as one line of `buf` and returns its display width.
 function M.set_chunks(buf, chunks)
