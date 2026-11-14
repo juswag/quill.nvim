@@ -13,6 +13,8 @@ local WIDTH = 46
 local MAX_LINES = 8
 
 local current
+local memory = {}
+local map_keys, enter_followup, show_entry, exit_followup
 
 local function config()
   return require("quill").config
@@ -321,7 +323,7 @@ local function box_opts(a, height, footer)
     footer = footer or "",
     footer_pos = "right",
     zindex = 70,
-    focusable = a.phase == "prompting",
+    focusable = a.phase == "prompting" or a.phase == "followup",
   }
 end
 
@@ -338,7 +340,7 @@ local function set_box(a, lines, marks, footer)
       hl_group = m.hl or "QuillAskRef",
     })
   end
-  if a.phase ~= "prompting" then
+  if a.phase ~= "prompting" and a.phase ~= "followup" then
     vim.bo[a.box_buf].modifiable = false
   end
   pcall(vim.api.nvim_win_set_config, a.box_win, box_opts(a, math.max(#lines, 1), footer))
@@ -358,6 +360,31 @@ local function decorate_prompt(a)
   end
 end
 
+
+local function answer_footer(a)
+  local k = config().keys
+  local chunks = {}
+  if a.history and #a.history > 1 and a.index then
+    chunks[#chunks + 1] = { (" %d/%d  "):format(a.index, #a.history), "QuillAskMuted" }
+  end
+  local pairs_list = {}
+  if a.truncated then
+    pairs_list[#pairs_list + 1] = { key_label(k.expand), "expand" }
+  end
+  pairs_list[#pairs_list + 1] = { key_label(k.followup), "follow-up" }
+  pairs_list[#pairs_list + 1] = { key_label(k.edit), "edit" }
+  pairs_list[#pairs_list + 1] = { key_label(k.cancel), "close" }
+  return vim.list_extend(chunks, footer_chunks(pairs_list))
+end
+
+local function spot_key(a)
+  local name = vim.api.nvim_buf_get_name(a.bufnr)
+  if name == "" then
+    name = "#" .. a.bufnr
+  end
+  return ("%s:%d:%d"):format(name, a.scope[1], a.scope[2])
+end
+
 local function paint(a)
   if a.phase == "prompting" then
     decorate_prompt(a)
@@ -372,17 +399,32 @@ local function paint(a)
     set_box(a, { " " .. spin }, { { row = 0, col = 1, end_col = 1 + #spin, hl = "QuillAskKey" } }, "")
     return
   end
-  if a.phase == "answered" then
-    local k = config().keys
+  if a.phase == "answered" or a.phase == "followup" then
     local lines, refs, truncated = layout(a.answer or "", a.width - 1, a.expanded)
     a.truncated = truncated
-    local pairs_list = {}
-    if truncated then
-      pairs_list[#pairs_list + 1] = { key_label(k.expand), "expand" }
+    if a.phase == "followup" then
+      if #lines >= MAX_LINES then
+        lines = vim.list_slice(lines, 1, MAX_LINES - 1)
+        refs = vim.tbl_filter(function(m)
+          return m.row < #lines
+        end, refs)
+      end
+      a.followup_head = vim.list_extend({}, lines)
+      a.followup_refs = refs
+      lines[#lines + 1] = a.followup_text or ""
+      set_box(a, lines, refs, footer_chunks({
+        { "⏎", "submit" },
+        { "esc", "cancel" },
+      }))
+      if (a.followup_text or "") == "" and vim.api.nvim_buf_is_valid(a.box_buf) then
+        vim.api.nvim_buf_set_extmark(a.box_buf, box_ns, #lines - 1, 0, {
+          virt_text = { { "Follow up", "QuillPlaceholder" } },
+          virt_text_pos = "overlay",
+        })
+      end
+    else
+      set_box(a, lines, refs, answer_footer(a))
     end
-    pairs_list[#pairs_list + 1] = { key_label(k.edit), "edit" }
-    pairs_list[#pairs_list + 1] = { key_label(k.cancel), "close" }
-    set_box(a, lines, refs, footer_chunks(pairs_list))
     highlight_buffer(a)
   end
   pcall(vim.cmd.redrawstatus)
@@ -392,6 +434,63 @@ local function focus_source(a)
   if a.win and vim.api.nvim_win_is_valid(a.win) then
     vim.api.nvim_set_current_win(a.win)
   end
+end
+
+local function remember(a)
+  local key = spot_key(a)
+  memory[key] = memory[key] or {}
+  memory[key][#memory[key] + 1] = { question = a.question, answer = a.answer }
+  a.history = memory[key]
+  a.index = #memory[key]
+end
+
+show_entry = function(a, index)
+  if not a.history or index < 1 or index > #a.history then
+    return
+  end
+  a.index = index
+  a.question = a.history[index].question
+  a.answer = a.history[index].answer
+  a.expanded, a.truncated = false, false
+  a.phase = "answered"
+  paint(a)
+  map_keys(a)
+end
+
+exit_followup = function(a)
+  if a.phase ~= "followup" then
+    return
+  end
+  a.phase = "answered"
+  a.followup_text = nil
+  vim.cmd.stopinsert()
+  focus_source(a)
+  paint(a)
+  map_keys(a)
+end
+
+enter_followup = function(a)
+  a.phase = "followup"
+  a.followup_text = ""
+  paint(a)
+  if not (a.box_win and vim.api.nvim_win_is_valid(a.box_win)) then
+    return
+  end
+  vim.bo[a.box_buf].modifiable = true
+  vim.api.nvim_set_current_win(a.box_win)
+  local last = vim.api.nvim_buf_line_count(a.box_buf)
+  vim.api.nvim_win_set_cursor(a.box_win, { last, 0 })
+  -- The `f` mapping is on the source buffer, so startinsert only after it returns.
+  vim.schedule(function()
+    if current ~= a or a.phase ~= "followup" then
+      return
+    end
+    if not (a.box_win and vim.api.nvim_win_is_valid(a.box_win)) then
+      return
+    end
+    vim.api.nvim_set_current_win(a.box_win)
+    vim.cmd.startinsert()
+  end)
 end
 
 local function to_edit(a)
@@ -407,7 +506,7 @@ local function to_edit(a)
   require("quill").start(s + 1, e + 1, { instruction = instruction })
 end
 
-local function map_keys(a)
+map_keys = function(a)
   unmap(a)
   if not vim.api.nvim_buf_is_valid(a.bufnr) then
     return
@@ -434,6 +533,23 @@ local function map_keys(a)
           a.expanded = true
           paint(a)
           map_keys(a)
+        end)
+      end
+    end
+    for _, lhs in ipairs(keys_of(k.followup)) do
+      map(lhs, function()
+        enter_followup(a)
+      end)
+    end
+    if a.history and #a.history > 1 then
+      for _, lhs in ipairs(keys_of(k.ask_prev)) do
+        map(lhs, function()
+          show_entry(a, a.index - 1)
+        end)
+      end
+      for _, lhs in ipairs(keys_of(k.ask_next)) do
+        map(lhs, function()
+          show_entry(a, a.index + 1)
         end)
       end
     end
@@ -471,11 +587,16 @@ local function run(a, question)
     vim.notify("quill: unknown provider " .. name, vim.log.levels.ERROR)
     return close(a)
   end
+  local prior = nil
+  if a.from_followup and a.history and a.index and a.index > 0 then
+    prior = vim.list_slice(a.history, 1, a.index)
+  end
   local req = context.ask_request({
     bufnr = a.bufnr,
     row = a.row,
     scope = a.scope,
     question = question,
+    history = prior,
   })
   local buffer = {}
   a.job = stream(req, opts, {
@@ -492,6 +613,8 @@ local function run(a, question)
       a.job = nil
       stop_spinner(a)
       a.answer = table.concat(buffer)
+      a.from_followup = false
+      remember(a)
       a.phase = "answered"
       paint(a)
       map_keys(a)
@@ -510,6 +633,16 @@ end
 
 local function bind_prompt(a)
   local function submit()
+    if a.phase == "followup" then
+      local lines = vim.api.nvim_buf_get_lines(a.box_buf, 0, -1, false)
+      local text = vim.trim(lines[#lines] or "")
+      if text == "" then
+        return
+      end
+      a.from_followup = true
+      run(a, text)
+      return
+    end
     if a.phase ~= "prompting" then
       return
     end
@@ -520,6 +653,10 @@ local function bind_prompt(a)
     run(a, text)
   end
   local function cancel()
+    if a.phase == "followup" then
+      exit_followup(a)
+      return
+    end
     close(a)
   end
   local map = function(modes, lhs, fn)
@@ -534,6 +671,41 @@ local function bind_prompt(a)
     callback = function()
       if a.phase == "prompting" then
         decorate_prompt(a)
+        return
+      end
+      if a.phase ~= "followup" or not a.followup_head then
+        return
+      end
+      local lines = vim.api.nvim_buf_get_lines(a.box_buf, 0, -1, false)
+      local head_n = #a.followup_head
+      local typed
+      if #lines > head_n then
+        typed = table.concat(vim.list_slice(lines, head_n + 1), " ")
+      else
+        typed = ""
+      end
+      local expected = vim.list_extend(vim.list_extend({}, a.followup_head), { typed })
+      if not vim.deep_equal(lines, expected) then
+        vim.bo[a.box_buf].modifiable = true
+        vim.api.nvim_buf_set_lines(a.box_buf, 0, -1, false, expected)
+        if a.box_win and vim.api.nvim_win_is_valid(a.box_win) then
+          vim.api.nvim_win_set_cursor(a.box_win, { #expected, #typed })
+        end
+        lines = expected
+      end
+      a.followup_text = typed
+      vim.api.nvim_buf_clear_namespace(a.box_buf, box_ns, 0, -1)
+      for _, m in ipairs(a.followup_refs or {}) do
+        vim.api.nvim_buf_set_extmark(a.box_buf, box_ns, m.row, m.col, {
+          end_col = m.end_col,
+          hl_group = "QuillAskRef",
+        })
+      end
+      if typed == "" then
+        vim.api.nvim_buf_set_extmark(a.box_buf, box_ns, #lines - 1, 0, {
+          virt_text = { { "Follow up", "QuillPlaceholder" } },
+          virt_text_pos = "overlay",
+        })
       end
     end,
   })
@@ -565,6 +737,10 @@ local function watch_source(a)
       local row = vim.api.nvim_win_get_cursor(a.win)[1] - 1
       if row < a.scope[1] or row > a.scope[2] then
         close(a)
+        return
+      end
+      if a.phase == "followup" then
+        exit_followup(a)
       end
     end,
   })
@@ -572,7 +748,7 @@ local function watch_source(a)
     group = a.augroup,
     buffer = a.bufnr,
     callback = function()
-      if current == a and a.phase ~= "prompting" and a.phase ~= "closed" then
+      if current == a and a.phase ~= "prompting" and a.phase ~= "followup" and a.phase ~= "closed" then
         close(a)
       end
     end,
@@ -587,6 +763,11 @@ function M.cancel()
   if current then
     close(current)
   end
+end
+
+--- Test hook: session memory is not otherwise reset while Neovim is running.
+function M._clear_memory()
+  memory = {}
 end
 
 --- Open the ask box on the cursor line. A non-empty `question` skips the prompt.
@@ -607,7 +788,11 @@ function M.open(question)
     width = width,
     mapped = {},
     frame = 0,
+    history = {},
+    index = 0,
   }
+  a.history = memory[spot_key(a)] or {}
+  a.index = #a.history
   current = a
   a.box_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[a.box_buf].bufhidden = "wipe"

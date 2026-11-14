@@ -132,8 +132,16 @@ line numbers mentioned in the answer are highlighted in the box and in the buffe
 box is open. The buffer is not modified. The box closes on `q` or `<Esc>`, or when the
 cursor leaves that function (or those nearby lines).
 
+`f` adds one input line in the box. The new answer replaces the old one; there
+is no thread. Prior questions and answers at that same spot (the enclosing
+function, or the nearby lines) are kept for the rest of the Neovim session and
+are sent with follow-up requests. When a spot has more than one answer, a muted
+`n/m` in the footer marks the current one, and `[` / `]` step through them.
+
 | Key | Action |
 | --- | --- |
+| `f` | Add a follow-up input line; the new answer replaces the old one |
+| `[` / `]` | Previous or next answer at this spot |
 | `e` / `<CR>` | Close the box and start an edit of the enclosing function, using the question and answer as the instruction |
 | `<Tab>` | Expand an answer that was capped at 8 lines |
 | `q` / `<Esc>` | Close the box |
